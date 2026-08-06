@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 运行期生成数据（默认配置会在首次运行时自动重建）
+data/
+
+# 开发/测试产物（技能副本、仿真 DB、临时日志）
+testdata/
+
+# 备份文件
+*.bak
+
+# 编辑器 / 系统
+.DS_Store
+*.swp

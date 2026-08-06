@@ -1,0 +1,18 @@
+services:
+  skillforge:
+    build: .
+    image: skillforge:1.0.0
+    ports:
+      - "8000:8000"
+    environment:
+      # 挂载你本机的 skills 目录（按实际路径修改）
+      - SKILLS_DIRS=/skills
+      - DATA_DIR=/data
+      # 可选：开启 LLM 语义重写
+      # - LLM_API_URL=https://api.openai.com/v1/chat/completions
+      # - LLM_API_KEY=sk-xxx
+      # - LLM_MODEL=gpt-4o-mini
+    volumes:
+      - ~/.workbuddy/skills:/skills:ro
+      - ./data:/data
+    restart: unless-stopped

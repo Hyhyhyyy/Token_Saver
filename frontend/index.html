@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkillForge · 技能精炼台</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⚡</span>
+      <div>
+        <div class="title">SkillForge · 技能精炼台</div>
+        <div class="subtitle">统一格式校验 · 语义清洗 · 冗余压缩 · 调用效果追踪</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button id="nav-assets" class="nav-btn active">技能资产</button>
+      <button id="nav-sim" class="nav-btn">仿真沙盘</button>
+      <button id="nav-conflicts" class="nav-btn">冲突检测</button>
+      <button id="nav-dashboard" class="nav-btn">数据看板</button>
+    </nav>
+    <div class="meta" id="meta">加载中…</div>
+  </header>
+
+  <!-- 资产视图 -->
+  <section id="view-assets" class="view">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span>技能资产</span>
+        <span id="skillCount" class="pill">0</span>
+      </div>
+      <ul id="skillList" class="skill-list"></ul>
+    </aside>
+
+    <main class="detail">
+      <div id="empty" class="empty">从左侧选择一个技能开始优化 →</div>
+
+      <div id="detailPanel" class="hidden">
+        <div class="detail-head">
+          <div>
+            <h2 id="d-name">—</h2>
+            <div id="d-path" class="mono path"></div>
+          </div>
+          <div class="score-box">
+            <div id="d-score" class="score">—</div>
+            <div class="score-label">健康度</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="overview">概览</button>
+          <button class="tab" data-tab="validate">校验</button>
+          <button class="tab" data-tab="clean">清洗</button>
+          <button class="tab" data-tab="track">追踪</button>
+        </div>
+
+        <div id="tab-overview" class="tabpane"></div>
+        <div id="tab-validate" class="tabpane hidden"></div>
+        <div id="tab-clean" class="tabpane hidden"></div>
+        <div id="tab-track" class="tabpane hidden"></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- 仿真沙盘视图 -->
+  <section id="view-sim" class="view hidden">
+    <main class="detail" style="width:100%">
+      <div class="tabs" id="simTabs">
+        <button class="tab active" data-stab="schedule">调度反事实模拟</button>
+        <button class="tab" data-stab="cost">成本/延迟仿真</button>
+      </div>
+      <div id="sim-schedule" class="tabpane"></div>
+      <div id="sim-cost" class="tabpane hidden"></div>
+    </main>
+  </section>
+
+  <!-- 冲突检测视图 -->
+  <section id="view-conflicts" class="view hidden">
+    <main class="detail" style="width:100%">
+      <div id="conflictsPanel"></div>
+    </main>
+  </section>
+
+  <!-- 看板视图 -->
+  <section id="view-dashboard" class="view hidden">
+    <div class="dash">
+      <div class="kpi-row" id="kpiRow"></div>
+      <div class="dash-grid">
+        <div class="card">
+          <h3>节省趋势（按天）</h3>
+          <div id="chartSeries" class="chart"></div>
+        </div>
+        <div class="card">
+          <h3>技能节省排行</h3>
+          <div id="chartLeader" class="chart"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>标准规范 v<span id="specVer"></span></h3>
+        <pre id="specTpl" class="mono"></pre>
+        <div id="specRules" class="rules"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
