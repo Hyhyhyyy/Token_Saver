@@ -10,6 +10,52 @@ const el = (tag, attrs = {}, html = "") => {
   return e;
 };
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+/* 复古环形分数（SVG，CSS 已做 stroke 过渡） */
+function scoreRing(value, color) {
+  const r = 34, c = 2 * Math.PI * r;
+  const off = c * (1 - Math.max(0, Math.min(100, value)) / 100);
+  return `<div class="score-ring">
+    <svg width="84" height="84" viewBox="0 0 84 84">
+      <circle class="ring-bg" cx="42" cy="42" r="${r}"></circle>
+      <circle class="ring-fg" cx="42" cy="42" r="${r}" stroke="${color}"
+        stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${c.toFixed(1)}"></circle>
+    </svg>
+    <div class="ring-num" data-target="${value}">0</div>
+  </div>`;
+}
+
+/* 数字滚动：把 [data-count] 元素从 0 动画到目标值 */
+function countUpAll(root = document) {
+  root.querySelectorAll("[data-count]").forEach((n) => {
+    const target = parseFloat(n.dataset.count);
+    const dec = (n.dataset.dec ? parseInt(n.dataset.dec, 10) : 0);
+    const dur = 900, t0 = performance.now();
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      n.textContent = (target * e).toFixed(dec);
+      if (k < 1) requestAnimationFrame(step);
+      else n.textContent = target.toFixed(dec);
+    };
+    requestAnimationFrame(step);
+  });
+  // 分数环数字滚动
+  root.querySelectorAll(".score-ring .ring-num").forEach((n) => {
+    const target = parseInt(n.dataset.target, 10) || 0, dur = 1000, t0 = performance.now();
+    const fg = n.parentElement.querySelector(".ring-fg");
+    const c = parseFloat(fg.getAttribute("stroke-dasharray"));
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      n.textContent = Math.round(target * e);
+      fg.setAttribute("stroke-dashoffset", (c * (1 - target * e / 100)).toFixed(1));
+      if (k < 1) requestAnimationFrame(step);
+      else { n.textContent = target; fg.setAttribute("stroke-dashoffset", (c * (1 - target / 100)).toFixed(1)); }
+    };
+    requestAnimationFrame(step);
+  });
+}
 function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden");
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add("hidden"), 2200);
@@ -56,8 +102,7 @@ async function selectSkill(id) {
   $("#d-name").textContent = d.name;
   $("#d-path").textContent = d.path;
   const sc = d.validation.score;
-  $("#d-score").textContent = sc;
-  $("#d-score").style.color = sc >= 90 ? "var(--green)" : sc >= 60 ? "var(--amber)" : "var(--red)";
+  $("#d-score").innerHTML = scoreRing(sc, sc >= 90 ? "var(--green)" : sc >= 60 ? "var(--amber)" : "var(--red)");
   renderOverview(d);
   renderValidate(d);
   $("#tab-clean").innerHTML = ""; $("#tab-track").innerHTML = "";
@@ -73,10 +118,10 @@ function renderOverview(d) {
       <h3>资产概览</h3>
       <div class="kv"><span class="k">状态</span><span><span class="badge ${v.status}">${
         v.status === "valid" ? "合规" : v.status === "warning" ? "待优化" : "异常"
-      }</span> · 健康度 ${v.score}/100</span></div>
-      <div class="kv"><span class="k">description Token</span><span><b>${d.desc_tokens}</b> （常驻每轮上下文）</span></div>
-      <div class="kv"><span class="k">SKILL.md 总 Token</span><span>${d.total_tokens}</span></div>
-      <div class="kv"><span class="k">问题数</span><span>${v.error_count} 错误 / ${v.warning_count} 警告 / ${v.info_count} 提示</span></div>
+      }</span> · 健康度 <b data-count="${v.score}">0</b>/100</span></div>
+      <div class="kv"><span class="k">description Token</span><span><b data-count="${d.desc_tokens}">0</b> （常驻每轮上下文）</span></div>
+      <div class="kv"><span class="k">SKILL.md 总 Token</span><span data-count="${d.total_tokens}">0</span></div>
+      <div class="kv"><span class="k">问题数</span><span><b data-count="${v.error_count}">0</b> 错误 / <b data-count="${v.warning_count}">0</b> 警告 / <b data-count="${v.info_count}">0</b> 提示</span></div>
       ${d.parse_error ? `<div class="kv"><span class="k">解析错误</span><span style="color:var(--red)">${esc(d.parse_error)}</span></div>` : ""}
     </div>
     <div class="card">
@@ -84,6 +129,7 @@ function renderOverview(d) {
       ${keys.map((k) => `<div class="kv"><span class="k">${esc(k)}</span><span class="mono">${esc(String(fm[k])).slice(0, 200)}</span></div>`).join("")}
     </div>`;
   $("#tab-overview").innerHTML = html;
+  countUpAll($("#tab-overview"));
 }
 
 function renderValidate(d) {
@@ -172,7 +218,7 @@ async function renderDashboard() {
     ["千轮会话节省", perTurn * 1000, "t"],
   ];
   $("#kpiRow").innerHTML = kpis.map(([l, v]) =>
-    `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`
+    `<div class="kpi"><div class="v" data-count="${v}">0</div><div class="l">${l}</div></div>`
   ).join("");
 
   // 仿真趋势数据已随调度/成本模拟写入 SQLite（见 /api/sim/trends），此处保留读取以备扩展看板卡片。
@@ -183,7 +229,7 @@ async function renderDashboard() {
   else {
     const max = Math.max(1, ...series.map((s) => s.saved));
     $("#chartSeries").innerHTML = series.map((s) =>
-      `<div class="bar-row"><span class="nm">${esc(s.day)}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.round(s.saved/max*100)}%"></span></span><span class="val">${s.saved}t</span></div>`
+      `<div class="bar-row"><span class="nm">${esc(s.day)}</span><span class="bar-track"><span class="bar-fill" data-w="${Math.round(s.saved/max*100)}"></span></span><span class="val">${s.saved}t</span></div>`
     ).join("");
   }
   const lb = stats.leaderboard || [];
@@ -191,9 +237,14 @@ async function renderDashboard() {
   else {
     const max = Math.max(1, ...lb.map((s) => s.saved));
     $("#chartLeader").innerHTML = lb.map((s) =>
-      `<div class="bar-row"><span class="nm">${esc(s.skill_id)}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.round(s.saved/max*100)}%"></span></span><span class="val">${s.saved}t</span></div>`
+      `<div class="bar-row"><span class="nm">${esc(s.skill_id)}</span><span class="bar-track"><span class="bar-fill" data-w="${Math.round(s.saved/max*100)}"></span></span><span class="val">${s.saved}t</span></div>`
     ).join("");
   }
+  countUpAll($(".dash"));
+  // bar 宽度过渡（CSS 已对 .bar-fill 做 width 过渡）
+  requestAnimationFrame(() => {
+    document.querySelectorAll(".dash .bar-fill").forEach((b) => (b.style.width = (b.dataset.w || 0) + "%"));
+  });
 }
 
 /* ---------- 仿真沙盘 ---------- */
@@ -452,6 +503,7 @@ async function loadConflicts() {
         <button class="btn secondary" data-deposit="${i}">沉淀为新规则</button>
       </div>`).join("");
     $("#conflictsList").innerHTML = `<div class="card"><h3>潜在冲突技能对（${r.pairs.length}）</h3>${cards}</div>`;
+    document.querySelectorAll("#conflictsList .conflict-card").forEach((c, i) => (c.style.animationDelay = (i * 0.06) + "s"));
     document.querySelectorAll("#conflictsList [data-deposit]").forEach((b) =>
       b.onclick = () => depositRule(r.pairs[+b.dataset.deposit])
     );
