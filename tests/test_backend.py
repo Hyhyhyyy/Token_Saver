@@ -8,7 +8,7 @@ def test_provider_local_st_returns_embedding_backend(skillforge_env):
     assert scorer.is_dense_backend(v)
 
 
-def test_provider_openai_without_api_url_falls_back(skillforge_env):
+def test_provider_openai_without_api_url_falls_back(skillforge_env_openai_no_url):
     v = scorer.get_vectorizer("embedding", "openai")
     assert isinstance(v, scorer.LocalTfidfBackend)
     assert not scorer.is_dense_backend(v)
@@ -43,5 +43,5 @@ def test_calibrate_gating_local_st_available(skillforge_env):
     skillforge_env.make_skill("my-beta", "生成Python数据可视化图表脚本")
     r = evolve.calibrate(limit=10)
     assert r.get("available") is True
-    # reason 文案泛化为不再依赖 api_url
-    assert "local-tfidf" in (r.get("reason") or "")
+    # 成功路径不应带 reason 字段（仅 available:false 才带 reason，且不再依赖 api_url 文案）
+    assert r.get("reason") is None

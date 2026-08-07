@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -109,6 +110,28 @@ def _reset_skillforge():
     return skillforge
 
 
+def _rebind_test_modules(request):
+    """将调用方测试模块的 skillforge 子模块引用重绑到本次 fixture 重新导入的实例。
+
+    原因：测试文件在模块顶层 `from skillforge import evolve` 会在 pytest 收集期
+    绑定「收集时」的模块对象（用默认 config，而非本 fixture 设定的 tmp DATA_DIR /
+    vectorizer.json）。fixture 内已重新导入 skillforge，这里把测试模块全局名重绑到
+    重新导入后的实例，确保测试真正运行在隔离后的临时环境上。
+    """
+    test_mod = getattr(request, "module", None)
+    if test_mod is None:
+        return
+    mod = sys.modules.get(test_mod.__name__) if hasattr(test_mod, "__name__") else None
+    if mod is None:
+        return
+    import skillforge as _pkg
+    for attr in ("evolve", "server", "simbank", "scorer", "auto_loop",
+                 "gold", "budget", "custom_rules", "simulator", "config"):
+        sub = getattr(_pkg, attr, None)
+        if sub is not None:
+            setattr(mod, attr, sub)
+
+
 def _make_env(tmp_path, monkeypatch, mock_url, backend_cfg_factory):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +167,7 @@ def _make_env(tmp_path, monkeypatch, mock_url, backend_cfg_factory):
 
 
 @pytest.fixture
-def skillforge_env(tmp_path, monkeypatch):
+def skillforge_env(request, tmp_path, monkeypatch):
     """embedding 后端（provider=local-st 指向 MockEmbeddingServer）。"""
     srv = MockEmbeddingServer().start()
     try:
@@ -155,15 +178,34 @@ def skillforge_env(tmp_path, monkeypatch):
                 "embedding": {"api_url": mock_url, "model": "nomic-embed-text"},
             }
 
-        yield _make_env(tmp_path, monkeypatch, srv.url, cfg)
+        ns = _make_env(tmp_path, monkeypatch, srv.url, cfg)
+        _rebind_test_modules(request)
+        yield ns
     finally:
         srv.stop()
 
 
 @pytest.fixture
-def skillforge_env_tfidf(tmp_path, monkeypatch):
+def skillforge_env_tfidf(request, tmp_path, monkeypatch):
     """local-tfidf 后端（稀疏，无 embedding，阈值分档为 tfidf 档）。"""
     def cfg(_mock_url):
         return {"backend": "local-tfidf"}
 
-    yield _make_env(tmp_path, monkeypatch, "", cfg)
+    ns = _make_env(tmp_path, monkeypatch, "", cfg)
+    _rebind_test_modules(request)
+    yield ns
+
+
+@pytest.fixture
+def skillforge_env_openai_no_url(request, tmp_path, monkeypatch):
+    """openai provider 但未配置 api_url → 应回退 local-tfidf（A-1 回退路径）。"""
+    def cfg(_mock_url):
+        return {
+            "backend": "embedding",
+            "provider": "openai",
+            "embedding": {"api_url": "", "model": "text-embedding-3-small"},
+        }
+
+    ns = _make_env(tmp_path, monkeypatch, "", cfg)
+    _rebind_test_modules(request)
+    yield ns
