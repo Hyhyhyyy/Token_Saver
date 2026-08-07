@@ -15,10 +15,9 @@ from datetime import datetime, timezone
 
 from .skill_parser import scan_skills
 from .cleaner import clean_description
-from .scorer import get_vectorizer, LocalTfidfBackend
+from .scorer import get_vectorizer, LocalTfidfBackend, conflict_default_threshold
 from . import gold, budget, pricing, simbank
 from .config import (
-    CONFLICT_DEFAULT_THRESHOLD,
     CONFLICT_THRESHOLD_MIN,
     CONFLICT_THRESHOLD_MAX,
     BUDGET_RECALL_TRIGGER,
@@ -231,9 +230,13 @@ def _backend_label(vec) -> str:
 
 def detect_conflicts(threshold: float | None = None,
                      backend_name: str | None = None) -> dict:
-    """跨技能对所有 description 两两向量相似度，超阈值标记冲突对。"""
+    """跨技能对所有 description 两两向量相似度，超阈值标记冲突对。
+
+    默认阈值经 scorer.conflict_default_threshold() 取用，随后端分档
+    （embedding 档 0.55 / local-tfidf 档 0.7，A-2）。
+    """
     if threshold is None:
-        threshold = CONFLICT_DEFAULT_THRESHOLD
+        threshold = conflict_default_threshold()
     threshold = min(CONFLICT_THRESHOLD_MAX, max(CONFLICT_THRESHOLD_MIN, float(threshold)))
 
     skills = scan_skills()

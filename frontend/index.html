@@ -106,17 +106,43 @@
     </div>
   </section>
 
-  <!-- 进化看板视图（v2.1 · 自主进化引擎 + 进化账本） -->
+  <!-- 进化看板视图（v2.1 + v2.2 · 自主进化引擎 + 进化账本 + 趋势可视化 + 自动循环） -->
   <section id="view-evolve" class="view hidden">
     <main class="detail" style="width:100%">
       <div class="kpi-row" id="evolveKpiRow"></div>
 
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <div id="autoStatus" class="auto-badge off">○ 自动进化：暂停</div>
+        <button class="btn secondary" id="evolveAutoBtn">⚙ 自动进化：开</button>
+      </div>
+
+      <div class="card trend-chart">
+        <h3>进化趋势 · Gold 覆盖度 / F1 选对率</h3>
+        <div id="trendChart">
+          <div id="trendGold" class="trend-svg"></div>
+          <div id="trendF1" class="trend-svg"></div>
+        </div>
+      </div>
+
       <div class="card">
         <h3>进化账本 · 自进化动作时间线</h3>
-        <div class="row">
+        <div class="row ledger-filter">
           <button class="btn" id="evolveBootstrapBtn">🌱 播种 Gold 样本</button>
           <button class="btn" id="evolveRunBtn">▶ 运行自主进化</button>
           <button class="btn" id="evolveReportBtn">📤 导出进化报告</button>
+          <select id="ledgerType" style="margin-left:8px">
+            <option value="">全部类型</option>
+            <option value="gold_seed">gold_seed</option>
+            <option value="budget_auto_recall">budget_auto_recall</option>
+            <option value="conflict_rule_deposit">conflict_rule_deposit</option>
+            <option value="budget_manual_override">budget_manual_override</option>
+            <option value="calibration">calibration</option>
+          </select>
+          <select id="ledgerWindow" style="margin-left:8px">
+            <option value="">全部时间</option>
+            <option value="today">今日</option>
+            <option value="week">本周</option>
+          </select>
           <select id="ledgerLimit" style="margin-left:auto">
             <option value="20">最近 20 条</option>
             <option value="50" selected>最近 50 条</option>
@@ -124,7 +150,7 @@
             <option value="200">最近 200 条</option>
           </select>
         </div>
-        <div class="note">GOAL-3 可追溯：每次自进化动作（gold 播种 / 预算自动回调 / 冲突规则沉淀 / 校准）都会写入进化账本，可在此审计「谁、何时、改了谁、前后值、触发源」。</div>
+        <div class="note">GOAL-3 可追溯：每次自进化动作（gold 播种 / 预算自动回调 / 冲突规则沉淀 / 校准）都会写入进化账本，可在此审计「谁、何时、改了谁、前后值、触发源」。可按类型 / 时间窗筛选。</div>
       </div>
 
       <div id="ledger-timeline"></div>
@@ -137,7 +163,7 @@
             <input type="number" id="calibLimit" value="30" min="1" max="200" style="width:64px">
           </label>
         </div>
-        <div id="calibration-panel" class="note">点击「运行校准」查看 local-tfidf 与 embedding 的打分分歧（需配置 embedding 后端 api_url）。</div>
+        <div id="calibration-panel" class="note">点击「运行校准」查看 local-tfidf 与 embedding 的打分分歧（需配置 embedding 后端 api_url 或 local-st 本地端点）。</div>
       </div>
     </main>
   </section>

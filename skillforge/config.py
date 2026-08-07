@@ -63,9 +63,21 @@ BUDGET_OVERRIDES_PATH = DATA_DIR / "skill_budget_overrides.json"
 CUSTOM_RULES_PATH = DATA_DIR / "custom_rules.json"
 
 # 语义冲突检测阈值（UI slider 0.5–0.95，默认 0.7）
-CONFLICT_DEFAULT_THRESHOLD = 0.7
+CONFLICT_DEFAULT_THRESHOLD = 0.7          # local-tfidf 档（v2.1 沿用）
 CONFLICT_THRESHOLD_MIN = 0.5
 CONFLICT_THRESHOLD_MAX = 0.95
+
+# embedding 档阈值（A-2：稠密向量余弦尺度，阈值随后端分档）
+CONFLICT_DEFAULT_THRESHOLD_EMBEDDING = 0.55
+CONFLICT_AUTO_DEPOSIT_THRESHOLD_EMBEDDING = 0.85
+
+# 本地 embedding 服务默认端点（local-st provider 指向本地 OpenAI 兼容服务，零新增依赖）
+EMBEDDING_API_URL = os.environ.get(
+    "EMBEDDING_API_URL", "http://localhost:11434/v1/embeddings"
+)
+
+# 自进化自动循环（B-1/B-2）：默认关，绝不静默写盘
+EVOLVE_INTERVAL_MINUTES = int(os.environ.get("EVOLVE_INTERVAL_MINUTES", "30"))
 
 # 预算回调（自进化闭环）：回归累计≥TRIGGER 次自动回调一档 STEP，封顶 DESC_HARD_TOKENS
 BUDGET_RECALL_STEP = 20
@@ -96,3 +108,11 @@ def auto_evolve_on_start() -> bool:
     每次调用求值、不缓存，避免进程期内环境变量变更被忽略。
     """
     return os.environ.get("AUTO_EVOLVE_ON_START", "false").lower() == "true"
+
+
+def auto_evolve_loop() -> bool:
+    """后台周期自动循环总开关：读取 AUTO_EVOLVE_LOOP 环境变量（默认 false）。
+
+    每次调用求值、不缓存，避免进程期内环境变量变更被忽略。
+    """
+    return os.environ.get("AUTO_EVOLVE_LOOP", "false").lower() == "true"

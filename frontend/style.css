@@ -255,6 +255,44 @@ body::after {
 .ledger-ts { color: var(--muted); font-size: 11px; flex-shrink: 0; }
 .ledger-note { color: var(--muted); font-size: 11px; margin-left: auto; max-width: 240px; text-align: right; }
 
+/* 进化看板 · 趋势图（C-1 · 手写 SVG 折线，零构建） */
+.trend-chart { margin-bottom: 16px; }
+#trendChart { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { #trendChart { grid-template-columns: 1fr; } }
+.trend-svg {
+  width: 100%; height: auto; background: var(--panel-solid);
+  border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+}
+.trend-line-gold {
+  fill: none; stroke: var(--primary); stroke-width: 2.5;
+  stroke-linejoin: round; stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(52, 224, 200, 0.5));
+}
+.trend-line-f1.before { fill: none; stroke: var(--amber); stroke-width: 2; stroke-dasharray: 5 4; }
+.trend-line-f1.after {
+  fill: none; stroke: var(--green); stroke-width: 2.5;
+  stroke-linejoin: round; stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(94, 224, 138, 0.4));
+}
+.trend-grid { stroke: var(--border-soft); stroke-width: 1; }
+.trend-axis { fill: var(--muted); font-size: 9px; font-family: var(--mono); }
+.trend-dot.gold { fill: var(--primary); }
+.trend-dot.after { fill: var(--green); }
+.trend-dot.before { fill: var(--amber); }
+.trend-empty { color: var(--muted); font-size: 12px; padding: 18px 12px; text-align: center; }
+
+/* 进化看板 · 自动进化徽标 + 开关 */
+.auto-badge {
+  font-size: 12px; padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--border); display: inline-flex; align-items: center; gap: 6px;
+}
+.auto-badge.on { color: var(--green); border-color: rgba(94, 224, 138, 0.4); background: var(--green-soft); }
+.auto-badge.off { color: var(--muted); }
+
+/* 进化看板 · 账本筛选条 */
+.ledger-filter select { margin-left: 8px; }
+
+
 select, input[type="file"] { font-family: inherit; }
 select { background: var(--panel-solid); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 

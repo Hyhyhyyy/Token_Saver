@@ -1,0 +1,91 @@
+%% SkillForge v2.2 增量时序图（对齐 docs/arch-evo2-2.md §4）
+%% ① embedding 后端切换 + 冲突检测真实命中；② 自动循环 run_evolve 闭环（互斥锁+no-op）；③ 趋势采集+前端渲染；④ 账本筛选
+
+sequenceDiagram
+    autonumber
+
+    %% ===== ① embedding 后端切换 + 冲突检测真实命中（A-1/A-2/A-3）=====
+    participant U as 前端(冲突检测)
+    participant S as server.GET /api/conflicts
+    participant SIM as simulator.detect_conflicts
+    participant R as scorer.get_vectorizer
+    participant V as EmbeddingBackend(local-st→localhost:11434)
+    participant L as simbank.evolution_ledger
+
+    Note over U,V: vectorizer.json = {backend:"embedding", provider:"local-st"}
+    U->>S: GET /api/conflicts
+    S->>SIM: detect_conflicts(threshold=None)
+    SIM->>R: get_vectorizer("embedding")
+    R->>R: _resolve_embedding_cfg(): provider=local-st → api_url=http://localhost:11434/v1/embeddings, model=nomic-embed-text
+    R-->>SIM: EmbeddingBackend(本地端点)
+    SIM->>SIM: 阈值 = scorer.conflict_default_threshold() → 0.55（embedding 档）
+    SIM->>V: similarity(da, db) 对每对真实技能描述
+    V-->>SIM: 稠密余弦（真实语义命中）
+    SIM->>SIM: sim >= 0.55 → pairs 非空（真实高相似对）
+    SIM-->>S: {threshold:0.55, backend:"embedding", pairs:[...]}
+    S-->>U: 真实冲突对（非空）
+
+    Note over U,R: 校准门控（A-3）：不再看 api_url
+    U->>S: GET /api/evolve/calibration
+    S->>SIM: evolve.calibrate(limit)
+    SIM->>R: is_dense_backend(get_vectorizer()) == True（local-st 返回 EmbeddingBackend）
+    SIM->>V: similarity 对采样对打分（local-st 本地推理）
+    SIM-->>S: {available:true, correlation, rank_divergence, top_divergent_pairs}
+
+    %% ===== ② 自动循环 run_evolve 闭环（互斥锁 + no-op）（B-1/B-2/B-3）=====
+    participant T as 后台周期任务(auto_loop)
+    participant Lock as asyncio.Lock
+    participant E as evolve.run_evolve(trigger="auto_loop")
+    participant M as simbank(evolution_ledger + evolution_metrics)
+
+    loop 每 EVOLVE_INTERVAL_MINUTES 分钟
+        T->>Lock: acquire()
+        alt 获得锁（手动/开机未占用）
+            T->>E: run_evolve(trigger="auto_loop")
+            E->>E: bootstrap_gold → gold_seeded
+            E->>E: run_schedule_sim → 自动回调 diff
+            E->>E: detect_conflicts(embedding 档 0.85)
+            E->>M: log_evolution(gold_seed/budget_auto_recall/conflict_rule_deposit, trigger=auto_loop)
+            E->>M: log_evolution_metric(gold_coverage, f1_before, f1_after)
+            alt 本轮无动作（gold 已全覆盖 且 无新增回归/冲突）
+                E-->>T: {ledger_new:[], no_op:true}
+            else 有动作
+                E-->>T: {ledger_new:[...], no_op:false}
+            end
+            T->>Lock: release()
+        else 锁被占用（手动/开机运行中）
+            T-->>T: 跳过本轮（防并发，不写盘）
+        end
+        T->>T: sleep(EVOLVE_INTERVAL_MINUTES*60)
+    end
+    Note over T,S: POST /api/evolve/auto/stop → 取消任务；GET /api/evolve/auto/status → {running,last_run,next_run_in_sec,interval_min}
+
+    %% ===== ③ 趋势采集与前端渲染（C-1）+ 自动循环状态（B-2）=====
+    participant V2 as GET /api/evolve/trends
+    participant F as 前端 SVG 折线
+
+    E->>M: log_evolution_metric(gold_coverage%, f1_acc_before, f1_acc_after) 每次 run_evolve
+    U->>S: GET /api/evolve/trends?limit=100
+    S->>V2: get_evolution_metrics(100)
+    V2->>M: SELECT ts,gold_coverage,f1_acc_before,f1_acc_after ORDER BY ts ASC
+    M-->>S: points[]
+    S-->>U: {points:[{ts,gold_coverage,f1_acc_before,f1_acc_after}]}
+    U->>F: renderTrendChart(points) 手写 SVG 折线（gold 覆盖度 + F1 前/后）
+    Note over F: 空数据→占位提示；hover tooltip(C-4)
+
+    U->>S: GET /api/evolve/auto/status
+    S-->>U: {running, last_run, next_run_in_sec, interval_min}
+    U->>S: POST /api/evolve/auto/start
+    S-->>U: {ok:true, running:true}
+    U->>S: POST /api/evolve/auto/stop
+    S-->>U: {ok:true, running:false}
+
+    %% ===== ④ 账本类型/时间筛选（C-2）=====
+    participant L2 as simbank.get_ledger
+    participant M2 as simbank._evolution_rows
+
+    U->>U: 选 #ledgerType + #ledgerWindow
+    U->>S: GET /api/evolve/ledger?action_type=&since=&until=&limit=
+    S->>L2: get_ledger(limit, action_type, since, until)
+    L2->>M2: SELECT ... WHERE action_type=? AND ts>=? AND ts<=? ORDER BY ts DESC
+    M2-->>U: {count, entries} 刷新时间线

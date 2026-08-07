@@ -1,0 +1,97 @@
+%% SkillForge v2.2 增量类图（对齐 docs/arch-evo2-2.md §3）
+%% 聚焦本次新增/改动的类与接口：VectorizerRegistry / AutoLoopController / EvolutionMetrics / 端点签名
+
+classDiagram
+    direction LR
+
+    class VectorizerBackend {
+        <<abstract>>
+        +fit(documents) self
+        +score(q, d) float
+        +similarity(a, b) float
+        +shared_keywords(a, b) list
+    }
+    class LocalTfidfBackend {
+        +similarity(a, b) float
+        +score(q, d) float
+    }
+    class EmbeddingBackend {
+        +api_url: str
+        +model: str
+        +_emb(text) list
+        +similarity(a, b) float
+        +score(q, d) float
+    }
+    VectorizerBackend <|-- LocalTfidfBackend
+    VectorizerBackend <|-- EmbeddingBackend
+
+    class VectorizerRegistry {
+        -_REGISTRY: dict~str,type~
+        +register_vectorizer(provider, cls) void
+        +get_vectorizer(backend_name, provider) VectorizerBackend
+        -_resolve_embedding_cfg() tuple
+        +is_dense_backend(vec) bool
+        +conflict_default_threshold() float
+        +conflict_auto_deposit_threshold() float
+    }
+
+    class AutoLoopController {
+        -_lock: asyncio.Lock
+        -_task: Task
+        +enabled: bool
+        +interval_min: int
+        +last_run: str
+        +next_run_in_sec: int
+        +start() void
+        +stop() void
+        +status() dict
+        +run_once(trigger) dict
+        +run_protected(fn) dict
+    }
+
+    class EvolutionMetrics {
+        <<SQLite table>>
+        +ts TEXT
+        +gold_coverage REAL
+        +f1_acc_before REAL
+        +f1_acc_after REAL
+    }
+
+    class Simbank {
+        +log_evolution_metric(gold_coverage, f1_before, f1_after) dict
+        +get_evolution_metrics(limit) list~dict~
+        +get_ledger(limit, action_type, since, until) dict
+        +log_evolution(...)
+    }
+
+    class EvolveEngine {
+        +run_evolve(seed_threshold, trigger) dict
+        +calibrate(limit) dict
+    }
+
+    class Config {
+        +EVOLVE_INTERVAL_MINUTES int
+        +AUTO_EVOLVE_LOOP bool
+        +EMBEDDING_API_URL str
+        +CONFLICT_DEFAULT_THRESHOLD_EMBEDDING float
+        +CONFLICT_AUTO_DEPOSIT_THRESHOLD_EMBEDDING float
+        +auto_evolve_loop() bool
+    }
+
+    class Server {
+        +GET /api/evolve/auto/status() dict
+        +POST /api/evolve/auto/start() dict
+        +POST /api/evolve/auto/stop() dict
+        +GET /api/evolve/trends(limit) dict
+        +GET /api/evolve/ledger(action_type, since, until) dict
+        +POST /api/evolve/run() dict
+    }
+
+    VectorizerRegistry ..> VectorizerBackend : 构造
+    AutoLoopController --> EvolveEngine : run_protected(run_evolve)
+    AutoLoopController --> Config : 读开关/间隔
+    AutoLoopController --> Server : 端点驱动
+    Simbank ..> EvolutionMetrics : 读写
+    EvolveEngine --> Simbank : 写 metrics + ledger
+    EvolveEngine --> VectorizerRegistry : calibrate 门控 / 阈值
+    Server --> AutoLoopController : 委托

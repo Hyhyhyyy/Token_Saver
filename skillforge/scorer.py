@@ -15,7 +15,14 @@ import os
 import re
 import urllib.request
 
-from .config import VECTORIZER_PATH
+from .config import (
+    VECTORIZER_PATH,
+    EMBEDDING_API_URL,
+    CONFLICT_DEFAULT_THRESHOLD,
+    CONFLICT_DEFAULT_THRESHOLD_EMBEDDING,
+    CONFLICT_AUTO_DEPOSIT_THRESHOLD,
+    CONFLICT_AUTO_DEPOSIT_THRESHOLD_EMBEDDING,
+)
 
 _NORM_RE = re.compile(r"\s+")
 
@@ -189,22 +196,123 @@ def _load_vectorizer_config() -> dict:
     }
 
 
-def get_vectorizer(backend_name: str | None = None) -> VectorizerBackend:
-    """取得向量后端实例。
+# --------------------------------------------------------------------------- #
+# 后端注册表（A-1 / A-4 · provider 可插拔）
+# --------------------------------------------------------------------------- #
+# 同一个 EmbeddingBackend 类映射多个 provider：openai（远程 OpenAI 兼容 API）
+# 与 local-st（本地 OpenAI 兼容服务，如 ollama / text-embeddings-inference）
+# 仅默认 api_url / model 不同；local-tfidf 为纯本地零依赖后端。
+_VECTORIZER_REGISTRY: dict[str, type[VectorizerBackend]] = {
+    "openai": EmbeddingBackend,
+    "local-st": EmbeddingBackend,
+    "local-tfidf": LocalTfidfBackend,
+}
 
-    backend_name 为 None 时读 vectorizer.json；为 'embedding' 且已配 api_url 才启用远程，
-    否则回退 LocalTfidfBackend（保证零依赖可运行）。
+
+def register_vectorizer(provider: str, cls: type[VectorizerBackend]) -> None:
+    """注入自定义向量后端（P1 · A-4）。
+
+    自定义 cls 构造函数签名应与 EmbeddingBackend(api_url=, model=, api_key_env=) 兼容，
+    以便 get_vectorizer 统一构造。内置 provider 不受影响。
+    """
+    if not (isinstance(cls, type) and issubclass(cls, VectorizerBackend)):
+        raise TypeError("cls 必须是 VectorizerBackend 的子类")
+    _VECTORIZER_REGISTRY[provider] = cls
+
+
+def _resolve_embedding_cfg(provider: str | None = None) -> tuple[str, str, str]:
+    """解析 embedding 后端连接参数，返回 (api_url, model, api_key_env)。
+
+    - provider 缺省由 vectorizer.json 推断：backend==embedding 时默认 openai，否则 local-tfidf。
+    - local-st：默认 api_url=EMBEDDING_API_URL（http://localhost:11434/v1/embeddings），
+      model=nomic-embed-text（可被 embedding.model 覆盖）。
+    - openai：api_url 取向量配置中的 api_url（缺省空 → 触发回退），model=text-embedding-3-small。
+    """
+    cfg = _load_vectorizer_config()
+    emb = cfg.get("embedding", {}) or {}
+    provider = provider or cfg.get("provider")
+    if provider is None:
+        provider = "openai" if cfg.get("backend") == "embedding" else "local-tfidf"
+    if provider == "local-st":
+        api_url = emb.get("api_url") or EMBEDDING_API_URL
+        model = emb.get("model") or "nomic-embed-text"
+    else:
+        # openai 与自定义 provider 均从 embedding 段取，缺省空（将回退 local-tfidf）
+        api_url = emb.get("api_url") or ""
+        model = emb.get("model") or "text-embedding-3-small"
+    api_key_env = emb.get("api_key_env", "EMBEDDING_API_KEY")
+    return api_url, model, api_key_env
+
+
+def _effective_is_embedding() -> bool:
+    """当前 vectorizer.json 是否真正解析为稠密 embedding 后端。
+
+    判定口径与 get_vectorizer() 一致：backend==embedding 且能解析出 api_url，
+    否则视为 local-tfidf（稀疏）。阈值函数据此切换分档（A-2 / A-5）。
+    """
+    cfg = _load_vectorizer_config()
+    if cfg.get("backend") != "embedding":
+        return False
+    provider = cfg.get("provider") or "openai"
+    api_url, _, _ = _resolve_embedding_cfg(provider)
+    return bool(api_url)
+
+
+def is_dense_backend(vec: VectorizerBackend) -> bool:
+    """是否为稠密向量后端（embedding 类）。calibrate 门控使用（A-3）。"""
+    return isinstance(vec, EmbeddingBackend)
+
+
+def conflict_default_threshold() -> float:
+    """冲突检测默认阈值（A-2）。
+
+    embedding 档 → 0.55；local-tfidf 档 → 0.7。
+    vectorizer.json 的 thresholds.{backend}.conflict_threshold 可覆盖（A-5）。
+    """
+    cfg = _load_vectorizer_config()
+    thresholds = cfg.get("thresholds", {}) or {}
+    if _effective_is_embedding():
+        t = (thresholds.get("embedding", {}) or {}).get("conflict_threshold")
+        return float(t) if t is not None else CONFLICT_DEFAULT_THRESHOLD_EMBEDDING
+    t = (thresholds.get("local-tfidf", {}) or {}).get("conflict_threshold")
+    return float(t) if t is not None else CONFLICT_DEFAULT_THRESHOLD
+
+
+def conflict_auto_deposit_threshold() -> float:
+    """冲突规则自动沉淀阈值（A-2）。
+
+    embedding 档 → 0.85；local-tfidf 档 → 0.9。
+    vectorizer.json 的 thresholds.{backend}.auto_deposit_threshold 可覆盖（A-5）。
+    """
+    cfg = _load_vectorizer_config()
+    thresholds = cfg.get("thresholds", {}) or {}
+    if _effective_is_embedding():
+        t = (thresholds.get("embedding", {}) or {}).get("auto_deposit_threshold")
+        return float(t) if t is not None else CONFLICT_AUTO_DEPOSIT_THRESHOLD_EMBEDDING
+    t = (thresholds.get("local-tfidf", {}) or {}).get("auto_deposit_threshold")
+    return float(t) if t is not None else CONFLICT_AUTO_DEPOSIT_THRESHOLD
+
+
+def get_vectorizer(backend_name: str | None = None,
+                   provider: str | None = None) -> VectorizerBackend:
+    """取得向量后端实例（A-1 · provider 解析）。
+
+    backend_name 为 None 时读 vectorizer.json；为 'embedding' 时按 provider
+    （openai / local-st / 自定义）解析 api_url 与 model 构造 EmbeddingBackend；
+    api_url 缺失则回退 LocalTfidfBackend（保证零依赖可运行）。
     """
     cfg = _load_vectorizer_config()
     name = backend_name or cfg.get("backend", "local-tfidf")
     if name == "embedding":
-        emb = cfg.get("embedding", {}) or {}
-        if emb.get("api_url"):
-            return EmbeddingBackend(
-                api_url=emb["api_url"],
-                api_key_env=emb.get("api_key_env", "EMBEDDING_API_KEY"),
-                model=emb.get("model", "text-embedding-3-small"),
-            )
-        # 未配置 api_url → 回退本地
-        return LocalTfidfBackend()
+        provider = provider or cfg.get("provider") or "openai"
+        api_url, model, api_key_env = _resolve_embedding_cfg(provider)
+        if not api_url:
+            # 未解析出 api_url（如 openai 未配 api_url）→ 回退本地
+            return LocalTfidfBackend()
+        cls = _VECTORIZER_REGISTRY.get(provider, EmbeddingBackend)
+        try:
+            return cls(api_url=api_url, model=model, api_key_env=api_key_env)
+        except TypeError:
+            # 自定义 provider 构造函数签名不兼容时回退标准 EmbeddingBackend
+            return EmbeddingBackend(api_url=api_url, model=model, api_key_env=api_key_env)
     return LocalTfidfBackend()

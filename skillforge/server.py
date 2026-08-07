@@ -18,30 +18,44 @@ from .tracker import log_event, get_stats, get_series, get_leaderboard, get_skil
 from .tokenizer import BACKEND, count_tokens
 from .spec import STANDARD_VERSION, SKILL_TEMPLATE, DESC_TEMPLATE, DESC_EXAMPLE, get_validation_rules
 from . import config
-from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve
-from .scorer import get_vectorizer, _load_vectorizer_config
+from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve, auto_loop
+from .scorer import get_vectorizer, _load_vectorizer_config, conflict_default_threshold
 import json
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """开机自启 Hook（E5，受 AUTO_EVOLVE_ON_START 开关控制，默认 false）。
+    """开机自启 Hook（E5，受 AUTO_EVOLVE_ON_START / AUTO_EVOLVE_LOOP 开关控制，默认 false）。
 
-    为 true 时顺序执行：bootstrap_gold(trigger="startup") → 快照 overrides →
-    run_schedule_sim() → 后快照 → _capture_auto_recall(trigger="startup") 写账。
-    任何异常吞掉仅记录，绝不影响应用就绪；默认 false 不写任何 ledger / 不新增 gold。
+    - AUTO_EVOLVE_ON_START=true：保留 v2.1 开机钩子（bootstrap_gold → 调度模拟 →
+      自动回调），其内部逻辑经 auto_loop.run_protected 进入（互斥锁保护）。
+    - AUTO_EVOLVE_LOOP=true：启动进程内后台周期自动循环（默认 false，绝不静默写盘）。
+    任何异常吞掉仅记录，绝不影响应用就绪；两个开关默认均 false。
     """
     if config.auto_evolve_on_start():
         try:
-            evolve.bootstrap_gold(force=True, trigger="startup")
-            before = budget.load_overrides()
-            simulator.run_schedule_sim()
-            after = budget.load_overrides()
-            evolve._capture_auto_recall(before, after, "startup")
+            def _boot_sequence():
+                evolve.bootstrap_gold(force=True, trigger="startup")
+                before = budget.load_overrides()
+                simulator.run_schedule_sim()
+                after = budget.load_overrides()
+                evolve._capture_auto_recall(before, after, "startup")
+
+            await auto_loop.run_protected(_boot_sequence)
         except Exception as e:  # noqa: BLE001
             print(f"[evolve] 开机自启异常（已吞掉，不影响启动）：{e}")
+
+    if config.auto_evolve_loop():
+        auto_loop.start()
+
     yield
+
+    # 关机：停止自动循环（释放后台任务）
+    try:
+        auto_loop.stop()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 app = FastAPI(title="SkillForge · 技能精炼台", version=__version__, lifespan=lifespan)
@@ -267,9 +281,10 @@ async def post_cost(request: Request):
 # ============================ F3 语义冲突检测 ============================
 
 @app.get("/api/conflicts")
-def get_conflicts(threshold: float = config.CONFLICT_DEFAULT_THRESHOLD):
+def get_conflicts(threshold: float | None = None):
     try:
-        return simulator.detect_conflicts(threshold=threshold)
+        t = threshold if threshold is not None else conflict_default_threshold()
+        return simulator.detect_conflicts(threshold=t)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"冲突检测失败：{e}")
 
@@ -304,8 +319,12 @@ def get_vectorizer_config():
     name = "embedding" if v.__class__.__name__ == "EmbeddingBackend" else "local-tfidf"
     cfg = _load_vectorizer_config()
     emb = cfg.get("embedding", {})
+    provider = cfg.get("provider")
+    if provider is None:
+        provider = "openai" if cfg.get("backend") == "embedding" else "local-tfidf"
     return {
         "backend": name,
+        "provider": provider,
         "embedding": {
             "api_url": emb.get("api_url", ""),
             "api_key_env": emb.get("api_key_env", "EMBEDDING_API_KEY"),
@@ -320,25 +339,32 @@ async def put_vectorizer_config(request: Request):
     backend = data.get("backend")
     if backend not in ("local-tfidf", "embedding"):
         raise HTTPException(400, "backend 必须为 local-tfidf 或 embedding")
+    if backend == "embedding":
+        provider = data.get("provider") or "openai"
+    else:
+        provider = "local-tfidf"
     emb = data.get("embedding") or {}
     cfg = {
         "backend": backend,
+        "provider": provider,
         "embedding": {
             "api_url": emb.get("api_url", ""),
             "api_key_env": emb.get("api_key_env", "EMBEDDING_API_KEY"),
             "model": emb.get("model", "text-embedding-3-small"),
         },
     }
-    # embedding 未配 api_url 时回退 local-tfidf，并给出告警提示
+    # embedding 未配 api_url 且非 local-st（本地默认端点可用）时回退 local-tfidf
     warn = None
-    if backend == "embedding" and not cfg["embedding"]["api_url"]:
+    if backend == "embedding" and provider != "local-st" and not cfg["embedding"]["api_url"]:
         cfg["backend"] = "local-tfidf"
+        cfg["provider"] = "local-tfidf"
         warn = "embedding 未配置 api_url，已回退 local-tfidf"
     config.VECTORIZER_PATH.write_text(
         json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     resp = {
         "backend": cfg["backend"],
+        "provider": cfg["provider"],
         "embedding": cfg["embedding"],
     }
     if warn:
@@ -382,10 +408,19 @@ def get_sim_trends():
 # ============================ 自进化引擎（v2.1 · 进化账本 / 自主进化） ============================
 
 @app.get("/api/evolve/ledger")
-def get_evolve_ledger(limit: int = 50, action_type: str | None = None, object: str | None = None):
-    """分页 + 过滤查询进化账本。limit 夹紧 [1,200]。"""
+def get_evolve_ledger(limit: int = 50, action_type: str | None = None,
+                      object: str | None = None,
+                      since: str | None = None, until: str | None = None):
+    """分页 + 过滤查询进化账本（C-2：新增 since/until 时间窗过滤）。limit 夹紧 [1,200]。"""
     lim = max(1, min(200, int(limit)))
-    return simbank.get_ledger(limit=lim, action_type=action_type, object=object)
+    return simbank.get_ledger(limit=lim, action_type=action_type, object=object,
+                              since=since, until=until)
+
+
+@app.get("/api/evolve/trends")
+def get_evolve_trends(limit: int = 100):
+    """进化趋势采集点（C-1）：每次 run_evolve 写一行覆盖度 / F1 选对率，按 ts 升序。"""
+    return {"points": simbank.get_evolution_metrics(limit)}
 
 
 @app.get("/api/evolve/report")
@@ -421,7 +456,11 @@ def get_calibration(limit: int = config.CALIBRATION_SAMPLE_PAIRS):
 
 @app.post("/api/evolve/run")
 async def post_evolve_run(request: Request):
-    """运行自主进化引擎（E4）：播种 → 调度模拟 → 冲突沉淀 → 写账本。可选 {seed_threshold?}。"""
+    """运行自主进化引擎（E4）：播种 → 调度模拟 → 冲突沉淀 → 写账本。
+
+    经 auto_loop.run_protected 进入（互斥锁保护，手动/自动/开机三路同一时刻仅一个
+    run_evolve 在跑）。可选 {seed_threshold?}。返回结果含 no_op 字段（B-3）。
+    """
     try:
         data = await request.json()
     except Exception:  # noqa: BLE001
@@ -430,10 +469,34 @@ async def post_evolve_run(request: Request):
         data = {}
     seed_threshold = data.get("seed_threshold")
     seed_threshold = int(seed_threshold) if isinstance(seed_threshold, int) else None
+
+    def _run():
+        return evolve.run_evolve(seed_threshold=seed_threshold, trigger="manual")
+
     try:
-        return evolve.run_evolve(seed_threshold=seed_threshold)
+        return await auto_loop.run_protected(_run)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"自主进化失败：{e}")
+
+
+@app.get("/api/evolve/auto/status")
+def get_auto_status():
+    """自动循环状态（B-2）：running / last_run / next_run_in_sec / interval_min。"""
+    return auto_loop.status()
+
+
+@app.post("/api/evolve/auto/start")
+async def post_auto_start():
+    """启动后台周期自动循环（B-2，幂等）。"""
+    auto_loop.start()
+    return {"ok": True, "running": True, "interval_min": auto_loop.status()["interval_min"]}
+
+
+@app.post("/api/evolve/auto/stop")
+async def post_auto_stop():
+    """停止后台周期自动循环（B-2）。"""
+    auto_loop.stop()
+    return {"ok": True, "running": False}
 
 
 # ---- 静态前端 ----

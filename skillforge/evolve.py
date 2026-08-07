@@ -18,7 +18,14 @@ from datetime import datetime, timezone
 
 from . import config, gold, budget, custom_rules, simulator, simbank
 from .skill_parser import scan_skills
-from .scorer import get_vectorizer, _load_vectorizer_config, LocalTfidfBackend, EmbeddingBackend
+from .scorer import (
+    get_vectorizer,
+    _load_vectorizer_config,
+    LocalTfidfBackend,
+    EmbeddingBackend,
+    is_dense_backend,
+    conflict_auto_deposit_threshold,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -170,14 +177,19 @@ def _capture_auto_recall(before: dict, after: dict, trigger: str) -> list[dict]:
     return new_entries
 
 
-def run_evolve(seed_threshold: int | None = None) -> dict:
+def run_evolve(seed_threshold: int | None = None,
+               trigger: str = "evolve_engine") -> dict:
     """自主进化引擎主入口（编排层）。
 
     ① gold 不足先播种；② 跑 F1 调度模拟并 diff 捕获自动回调；
-    ③ F3 高相似冲突（sim≥CONFLICT_AUTO_DEPOSIT_THRESHOLD）自动沉淀规则；
-    ④ 聚合本轮所有 ledger 写入；⑤ 返回结构化结果。
+    ③ F3 高相似冲突（sim≥阈值）自动沉淀规则；
+    ④ 聚合本轮所有 ledger 写入；⑤ 计算 gold 覆盖度并写 evolution_metrics；
+    ⑥ 返回结构化结果。
 
-    返回 {gold, schedule, auto_recalled, deposited_rules, ledger_new, ran_at}。
+    返回 {gold, schedule, auto_recalled, deposited_rules, ledger_new, no_op,
+    gold_coverage, ran_at}。
+    trigger 统一下传到 gold_seed/budget_auto_recall/conflict_rule_deposit（B-1：
+    自动循环条目 trigger=auto_loop）。
     """
     run_start = _now()
 
@@ -185,20 +197,21 @@ def run_evolve(seed_threshold: int | None = None) -> dict:
     # bootstrap_gold 现在自判断是否需要播种，无需调用方再按阈值预筛。
     # seed_threshold 仅保留接口兼容，此处不再用于门控。
     gold_seeded = 0
-    bg = bootstrap_gold(trigger="evolve_engine")
+    bg = bootstrap_gold(trigger=trigger)
     gold_seeded = bg["seeded"]
 
     # ② 跑 F1 调度模拟，前后快照 diff 捕获自动回调（arch §7.1）
     before = budget.load_overrides()
     schedule_result = simulator.run_schedule_sim()
     after = budget.load_overrides()
-    auto_recalled_entries = _capture_auto_recall(before, after, "f1_schedule")
+    auto_recalled_entries = _capture_auto_recall(before, after, trigger)
 
-    # ③ F3 高相似冲突自动沉淀为自定义校验规则
+    # ③ F3 高相似冲突自动沉淀为自定义校验规则（A-2：阈值随后端分档）
+    deposit_threshold = conflict_auto_deposit_threshold()
     deposited_rules: list[dict] = []
-    conflicts = simulator.detect_conflicts(threshold=config.CONFLICT_AUTO_DEPOSIT_THRESHOLD)
+    conflicts = simulator.detect_conflicts(threshold=deposit_threshold)
     for pair in conflicts.get("pairs", []):
-        if pair["similarity"] >= config.CONFLICT_AUTO_DEPOSIT_THRESHOLD:
+        if pair["similarity"] >= deposit_threshold:
             shared = pair.get("shared_keywords") or []
             kc = shared if shared else [pair["skill_a"], pair["skill_b"]]
             try:
@@ -212,7 +225,7 @@ def run_evolve(seed_threshold: int | None = None) -> dict:
             )
             simbank.log_evolution(
                 "conflict_rule_deposit", rule["id"], "",
-                cluster_json, "f3_conflict", "高相似冲突自动沉淀",
+                cluster_json, trigger, "高相似冲突自动沉淀",
             )
             deposited_rules.append({
                 "id": rule["id"],
@@ -223,6 +236,18 @@ def run_evolve(seed_threshold: int | None = None) -> dict:
 
     # ④ 聚合本轮（ts >= run_start）所有账本写入
     ledger_new = _fetch_new_entries(run_start)
+
+    # ⑤ 计算 gold 覆盖度（C-1）：已装用户技能被 gold 覆盖的百分比
+    gold_coverage = _compute_gold_coverage()
+
+    # B-3 no-op 判定：gold 已全覆盖且本轮无新增回归/冲突 → 跳过写 ledger/metrics
+    is_no_op = (gold_seeded == 0 and not auto_recalled_entries and not deposited_rules)
+    if not is_no_op:
+        simbank.log_evolution_metric(
+            gold_coverage,
+            schedule_result["accuracy_before"],
+            schedule_result["accuracy_after"],
+        )
 
     return {
         "gold": {"seeded": gold_seeded, "total": len(gold.get_gold())},
@@ -239,8 +264,19 @@ def run_evolve(seed_threshold: int | None = None) -> dict:
         ],
         "deposited_rules": deposited_rules,
         "ledger_new": ledger_new,
+        "no_op": is_no_op,
+        "gold_coverage": gold_coverage,
         "ran_at": run_start,
     }
+
+
+def _compute_gold_coverage() -> float:
+    """计算 gold 覆盖度（C-1）：USER_SKILLS_DIR 已装技能被 gold 覆盖的百分比 (0~100)。"""
+    installed = scan_skills(dirs=[config.USER_SKILLS_DIR])
+    gold_samples = gold.get_gold()
+    installed_ids = {s["name"] for s in installed}
+    covered = installed_ids & {g["skill_id"] for g in gold_samples}
+    return round(100.0 * len(covered) / max(1, len(installed)), 2)
 
 
 # --------------------------------------------------------------------------- #
@@ -256,18 +292,18 @@ def calibrate(limit: int = config.CALIBRATION_SAMPLE_PAIRS) -> dict:
     成功返回 {available:true, sample_pairs, correlation, rank_divergence,
              top_divergent_pairs, ran_at}。
     """
-    # 可用性门
-    cfg = _load_vectorizer_config()
-    emb = cfg.get("embedding", {}) or {}
-    if cfg.get("backend") != "embedding" or not emb.get("api_url"):
+    # 可用性门（A-3）：不再看 api_url 非空，而是「当前后端是否为稠密向量后端
+    # （openai/local-st 任一）」。local-st 指向本地推理端点，直接 available:true。
+    vec = get_vectorizer()
+    if not is_dense_backend(vec):
         return {
             "available": False,
-            "reason": "embedding 后端未配置 api_url，无法横向对比；当前仅 local-tfidf",
+            "reason": "当前后端为 local-tfidf，无稠密 embedding 可对比；配置 provider=openai/local-st 后启用",
         }
 
     try:
         local = LocalTfidfBackend()
-        emb_backend = EmbeddingBackend(api_url=emb["api_url"])
+        emb_backend = vec
 
         descs = [
             (s["name"], s["frontmatter"].get("description") or "")

@@ -562,10 +562,12 @@ function switchTab(name) {
   if (name === "track") renderTrack();
 }
 
-/* ---------- 进化看板（v2.1 · 自主进化引擎 + 进化账本） ---------- */
+/* ---------- 进化看板（v2.1 + v2.2 · 自主进化引擎 + 进化账本 + 趋势 + 自动循环） ---------- */
 function renderEvolve() {
   bindEvolveNav();
   loadLedger();
+  loadTrends();
+  getAutoStatus();
 }
 
 function bindEvolveNav() {
@@ -573,14 +575,24 @@ function bindEvolveNav() {
   $("#evolveRunBtn").onclick = runEvolve;
   $("#evolveReportBtn").onclick = exportReport;
   $("#evolveCalibrateBtn").onclick = loadCalibration;
+  $("#evolveAutoBtn").onclick = toggleAutoEvolve;
   $("#ledgerLimit").onchange = loadLedger;
+  $("#ledgerType").onchange = loadLedger;
+  $("#ledgerWindow").onchange = loadLedger;
 }
 
 async function loadLedger() {
   const limit = +($("#ledgerLimit")?.value || 50);
+  const type = $("#ledgerType")?.value || "";
+  const window = $("#ledgerWindow")?.value || "";
+  const bounds = _windowBounds(window);
+  let url = `/api/evolve/ledger?limit=${limit}`;
+  if (type) url += `&action_type=${encodeURIComponent(type)}`;
+  if (bounds.since) url += `&since=${encodeURIComponent(bounds.since)}`;
+  if (bounds.until) url += `&until=${encodeURIComponent(bounds.until)}`;
   $("#ledger-timeline").innerHTML = `<div class="note">加载账本…</div>`;
   try {
-    const r = await api(`/api/evolve/ledger?limit=${limit}`);
+    const r = await api(url);
     renderTrendCards();
     if (!r.entries.length) {
       $("#ledger-timeline").innerHTML = `<div class="card"><div class="note">暂无进化记录。运行「🌱 播种」或「▶ 运行自主进化」开始积累。</div></div>`;
@@ -606,6 +618,21 @@ async function loadLedger() {
   } catch (e) {
     $("#ledger-timeline").innerHTML = `<div class="card" style="color:var(--red)">加载失败：${esc(e.message)}</div>`;
   }
+}
+
+/* 时间窗 -> ISO 边界（UTC，字典序可比）。today=当日 00:00Z 起；week=近 7 天起。 */
+function _windowBounds(window) {
+  if (!window) return { since: "", until: "" };
+  const now = new Date();
+  if (window === "today") {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    return { since: start.toISOString(), until: "" };
+  }
+  if (window === "week") {
+    const start = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    return { since: start.toISOString(), until: "" };
+  }
+  return { since: "", until: "" };
 }
 
 async function bootstrapGold() {
@@ -673,6 +700,114 @@ async function exportReport() {
     toast("已导出 evolution_report.md");
   } catch (e) {
     toast("导出失败：" + e.message);
+  }
+}
+
+/* ---------- 进化趋势图（C-1 / C-4 · 手写 SVG 折线，零构建零依赖） ---------- */
+async function loadTrends() {
+  try {
+    const r = await api("/api/evolve/trends?limit=100");
+    renderTrendChart(r.points || []);
+  } catch (e) { /* 静默：不影响账本渲染 */ }
+}
+
+/* 手写 SVG 折线渲染：gold 覆盖度（0~100%）+ F1 前(虚)/后(实)。
+   空数据占位；每个数据点带 <title> hover tooltip（C-4）。沿用 .trend-svg 视觉。 */
+function renderTrendChart(points) {
+  const emptyGold = `<div class="trend-empty">暂无趋势数据，运行「▶ 运行自主进化」后此处显示 Gold 覆盖度趋势。</div>`;
+  const emptyF1 = `<div class="trend-empty">暂无趋势数据。</div>`;
+  if (!points || !points.length) {
+    $("#trendGold").innerHTML = emptyGold;
+    $("#trendF1").innerHTML = emptyF1;
+    return;
+  }
+  _drawTrend("#trendGold", points, {
+    label: "Gold 覆盖度 (%)",
+    minY: 0, maxY: 100, value: (p) => p.gold_coverage,
+    cls: "trend-line-gold", yFmt: (v) => v.toFixed(1) + "%",
+  });
+  _drawTrend("#trendF1", points, {
+    label: "F1 选对率（清洗前/后）",
+    minY: 0, maxY: 1, dual: true,
+    before: (p) => p.f1_acc_before, after: (p) => p.f1_acc_after,
+    clsBefore: "trend-line-f1 before", clsAfter: "trend-line-f1 after",
+    yFmt: (v) => (v * 100).toFixed(1) + "%",
+  });
+}
+
+function _drawTrend(sel, points, opt) {
+  const W = 560, H = 170, padL = 42, padR = 14, padT = 14, padB = 28;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const n = points.length;
+  const xAt = (i) => padL + (n === 1 ? innerW / 2 : innerW * i / (n - 1));
+  const yAt = (v) => padT + innerH * (1 - (v - opt.minY) / ((opt.maxY - opt.minY) || 1));
+  const mkPath = (vals) =>
+    vals.map((v, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ");
+
+  let grid = "";
+  for (let k = 0; k <= 4; k++) {
+    const yy = padT + innerH * k / 4;
+    const val = opt.maxY - (opt.maxY - opt.minY) * k / 4;
+    grid += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}" class="trend-grid"/>`;
+    grid += `<text x="${padL - 6}" y="${(yy + 3).toFixed(1)}" class="trend-axis" text-anchor="end">${opt.yFmt(val)}</text>`;
+  }
+
+  let lines = "", dots = "";
+  if (opt.dual) {
+    const bv = points.map((p) => opt.before(p));
+    const av = points.map((p) => opt.after(p));
+    lines += `<path d="${mkPath(bv)}" class="${opt.clsBefore}" />`;
+    lines += `<path d="${mkPath(av)}" class="${opt.clsAfter}" />`;
+    points.forEach((p, i) => {
+      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(av[i]).toFixed(1)}" r="3" class="trend-dot after"><title>${esc(p.ts)} · 后: ${opt.yFmt(av[i])}</title></circle>`;
+      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(bv[i]).toFixed(1)}" r="3" class="trend-dot before"><title>${esc(p.ts)} · 前: ${opt.yFmt(bv[i])}</title></circle>`;
+    });
+  } else {
+    const vv = points.map((p) => opt.value(p));
+    lines += `<path d="${mkPath(vv)}" class="${opt.cls}" />`;
+    points.forEach((p, i) => {
+      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(vv[i]).toFixed(1)}" r="3" class="trend-dot gold"><title>${esc(p.ts)} · ${opt.label}: ${opt.yFmt(vv[i])}</title></circle>`;
+    });
+  }
+
+  $(sel).innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="xMidYMid meet">
+    ${grid}${lines}${dots}
+    <text x="${padL}" y="${H - 6}" class="trend-axis">${esc(opt.label)}</text>
+  </svg>`;
+}
+
+/* ---------- 自动循环状态（B-2） ---------- */
+async function getAutoStatus() {
+  try {
+    const s = await api("/api/evolve/auto/status");
+    const badge = $("#autoStatus");
+    if (s.running) {
+      badge.className = "auto-badge on";
+      const next = s.next_run_in_sec != null ? ` · 下次 ~${Math.ceil(s.next_run_in_sec / 60)} 分后` : "";
+      const last = s.last_run ? ` · 上次 ${s.last_run.slice(0, 19).replace("T", " ")}` : "";
+      badge.textContent = `● 自动进化：运行中${last}${next}`;
+      $("#evolveAutoBtn").textContent = "⚙ 自动进化：关";
+    } else {
+      badge.className = "auto-badge off";
+      badge.textContent = "○ 自动进化：暂停";
+      $("#evolveAutoBtn").textContent = "⚙ 自动进化：开";
+    }
+  } catch (e) { /* 静默：端点可能暂不可用 */ }
+}
+
+async function toggleAutoEvolve() {
+  try {
+    const s = await api("/api/evolve/auto/status");
+    if (s.running) {
+      await api("/api/evolve/auto/stop", { method: "POST" });
+      toast("已关闭自动进化循环");
+    } else {
+      await api("/api/evolve/auto/start", { method: "POST" });
+      toast("已开启自动进化循环");
+    }
+    getAutoStatus();
+  } catch (e) {
+    toast("切换失败：" + e.message);
   }
 }
 

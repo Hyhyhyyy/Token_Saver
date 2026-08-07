@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS evolution_ledger (
 CREATE INDEX IF NOT EXISTS idx_ledger_ts        ON evolution_ledger(ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_action    ON evolution_ledger(action_type);
 CREATE INDEX IF NOT EXISTS idx_ledger_object    ON evolution_ledger(object);
+
+-- 进化趋势采集（v2.2 新增 · C-1）：每次 run_evolve 写一行覆盖度 / F1 选对率
+CREATE TABLE IF NOT EXISTS evolution_metrics (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             TEXT NOT NULL,
+    gold_coverage  REAL,
+    f1_acc_before  REAL,
+    f1_acc_after   REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_ts ON evolution_metrics(ts);
 """
 
 
@@ -189,11 +200,14 @@ def log_evolution(action_type: str, object: str, before_val: str,
 
 
 def get_ledger(limit: int = 50, action_type: str | None = None,
-               object: str | None = None) -> dict:
-    """分页 + 过滤查询进化账本。
+               object: str | None = None,
+               since: str | None = None,
+               until: str | None = None) -> dict:
+    """分页 + 过滤查询进化账本（C-2：新增 since/until 时间窗过滤）。
 
     返回 {count, entries:[{id,ts,action_type,object,before_val,after_val,trigger,note}]}。
-    limit 夹紧到 [1,200]；action_type/object 为空表示不过滤；按 ts DESC、id DESC。
+    limit 夹紧到 [1,200]；action_type/object/since/until 为空表示不过滤；
+    since/until 为 ISO 字符串（可直接按字典序比较）；按 ts DESC、id DESC。
     """
     limit = max(1, min(200, int(limit)))
     clauses = []
@@ -204,6 +218,12 @@ def get_ledger(limit: int = 50, action_type: str | None = None,
     if object is not None:
         clauses.append("object = ?")
         params.append(object)
+    if since is not None:
+        clauses.append("ts >= ?")
+        params.append(since)
+    if until is not None:
+        clauses.append("ts <= ?")
+        params.append(until)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     c = _conn()
     rows = c.execute(
@@ -214,6 +234,44 @@ def get_ledger(limit: int = 50, action_type: str | None = None,
     c.close()
     entries = [dict(r) for r in rows]
     return {"count": len(entries), "entries": entries}
+
+
+def log_evolution_metric(gold_coverage: float, f1_acc_before: float,
+                         f1_acc_after: float) -> dict:
+    """写一行 evolution_metrics（C-1），返回该行 dict（含自增 id、ts）。
+
+    由 evolve.run_evolve 在每次（非 no-op）运行末调用，记录：
+    gold_coverage（0~100，已装用户技能被 gold 覆盖的百分比）、
+    f1_acc_before / f1_acc_after（F1 调度模拟清洗前/后选对率，0~1）。
+    """
+    c = _conn()
+    cur = c.execute(
+        "INSERT INTO evolution_metrics (ts, gold_coverage, f1_acc_before, f1_acc_after) "
+        "VALUES (?,?,?,?)",
+        (_now(), float(gold_coverage), float(f1_acc_before), float(f1_acc_after)),
+    )
+    row = c.execute(
+        "SELECT * FROM evolution_metrics WHERE id=?", (cur.lastrowid,)
+    ).fetchone()
+    c.commit()
+    c.close()
+    return dict(row)
+
+
+def get_evolution_metrics(limit: int = 100) -> list[dict]:
+    """返回进化趋势采集点（C-1），按 ts ASC（前端折线按时间升序绘制）。
+
+    limit 夹紧 [1,1000]；每点 {ts, gold_coverage, f1_acc_before, f1_acc_after}。
+    """
+    limit = max(1, min(1000, int(limit)))
+    c = _conn()
+    rows = c.execute(
+        "SELECT ts, gold_coverage, f1_acc_before, f1_acc_after "
+        "FROM evolution_metrics ORDER BY ts ASC, id ASC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
 
 
 def _evolution_rows(since: str | None = None, until: str | None = None,
