@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 560">
+<defs>
+    <filter id="sh" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="1" dy="2" stdDeviation="3" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arr-dk" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#334155"/>
+    </marker>
+    <style>.t{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif} .lb{font-size:12px;fill:#475569;font-weight:600}</style>
+  </defs>
+<rect width="920" height="560" rx="16" fill="#f0fdfa"/>
+<text x="460" y="36" text-anchor="middle" class="t" font-size="22" font-weight="800" fill="#065f46">SkillForge · 系统架构</text>
+<rect x="30" y="64" width="250" height="330" rx="14" fill="#0d9488" filter="url(#sh)" opacity="0.96"/>
+<text x="155" y="94" text-anchor="middle" class="t" font-size="15" font-weight="800" fill="#fff">浏览器工作台 · Frontend</text>
+<text x="48" y="122" class="t" font-size="12.5" fill="#fff">• index.html 工作台界面</text>
+<text x="48" y="146" class="t" font-size="12.5" fill="#fff">• style.css 样式（零依赖）</text>
+<text x="48" y="170" class="t" font-size="12.5" fill="#fff">• app.js 交互与 HTTP 请求</text>
+<text x="48" y="194" class="t" font-size="12.5" fill="#fff">• 原生实现 · 零构建部署</text>
+<rect x="335" y="64" width="250" height="330" rx="14" fill="#059669" filter="url(#sh)" opacity="0.96"/>
+<text x="460" y="94" text-anchor="middle" class="t" font-size="15" font-weight="800" fill="#fff">SkillForge 后端流水线</text>
+<text x="353" y="122" class="t" font-size="12.5" fill="#fff">• ① 解析 skill_parser</text>
+<text x="353" y="146" class="t" font-size="12.5" fill="#fff">• ② 校验 validator · 三轴</text>
+<text x="353" y="170" class="t" font-size="12.5" fill="#fff">• ③ 清洗 cleaner · 规则+LLM</text>
+<text x="353" y="194" class="t" font-size="12.5" fill="#fff">• ④ 计量 tokenizer + scorer</text>
+<text x="353" y="218" class="t" font-size="12.5" fill="#fff">• ⑤ 追踪 tracker · SQLite</text>
+<rect x="640" y="64" width="250" height="330" rx="14" fill="#047857" filter="url(#sh)" opacity="0.96"/>
+<text x="765" y="94" text-anchor="middle" class="t" font-size="15" font-weight="800" fill="#fff">存储与外部依赖</text>
+<text x="658" y="122" class="t" font-size="12.5" fill="#fff">• SQLite 数据看板 DATA_DIR</text>
+<text x="658" y="146" class="t" font-size="12.5" fill="#fff">• 技能目录 SKILLS_DIRS 扫描</text>
+<text x="658" y="170" class="t" font-size="12.5" fill="#fff">• 可选 LLM API 语义重写</text>
+<line x1="280" y1="229" x2="335" y2="229" stroke="#0d9488" stroke-width="2" marker-end="url(#arr)"/>
+<text x="263" y="219" class="lb">HTTP / REST</text>
+<line x1="585" y1="229" x2="640" y2="229" stroke="#0d9488" stroke-width="2" marker-end="url(#arr)"/>
+<text x="560" y="219" class="lb">读写·扫描·调用</text>
+<rect x="160" y="418" width="600" height="54" rx="10" fill="#0d9488" stroke="#0d9488" stroke-width="1.5" filter="url(#sh)"/>
+<text x="460.0" y="451.0" text-anchor="middle" class="t" font-size="13" font-weight="700" fill="#065f46">量化节省 ≈ Σ(各技能 description 清洗后减少的 token) × 会话轮次</text>
+<text x="460" y="540" text-anchor="middle" class="t" font-size="12.5" font-weight="700" fill="#065f46">示例：20 个技能各压缩 30 token → 每轮省 600 · 千轮会话省约 60 万 token</text>
+</svg>

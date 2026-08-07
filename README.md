@@ -1,4 +1,35 @@
-# SkillForge · 技能精炼台
+<p align="center">
+  <img src="banner.svg" alt="SkillForge 技能精炼台 · Token Saver" width="100%">
+</p>
+
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.12-3776AB)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
+![SQLite](https://img.shields.io/badge/SQLite-DB-1B6EC2)
+![Docker](https://img.shields.io/badge/Docker-Deploy-2496ED)
+
+**🍅 让每一轮对话少花无效 Token · AI 工作台 Skill 资产优化**
+
+</div>
+
+
+---
+
+
+## ✨ 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| 🔍 **统一格式校验** | 按《标准规范 v1.0》三轴（格式/语义/冗余）自动体检，给出健康度评分与修复建议 |
+| 🧹 **语义清洗** | 规则引擎归一化描述为标准模板，移除填充词与重复字段；可选 LLM 语义重写进一步压缩 |
+| 🗜️ **冗余压缩** | 以 Token 预算（目标 ≤40，硬上限 90）压减 description，前后对比量化节省 |
+| 📊 **调用效果追踪** | SQLite 记录每次优化/应用事件，看板展示累计节省、每轮常驻节省与趋势排行 |
+| 🖥️ **零构建工作台** | 原生 HTML/CSS/JS 前端，Docker 或一键脚本即可本地部署 |
+
+
+---
+
 
 > 面向个人开发者的 **Skill 资产优化工作台**：统一格式校验 · 语义清洗 · 冗余压缩 · 调用效果追踪，
 > 引导 Agent 更精准地调用技能，**降低 AI 工作台每轮对话的无效 Token 开销**。
@@ -59,6 +90,12 @@ uvicorn skillforge.server:app --host 0.0.0.0 --port 8000
 3. 切到 **清洗** → 运行清洗，查看前后对比与 Token 节省 → **应用并写回**（原文件自动备份 `.bak`）。
 4. 切到 **数据看板** 查看累计节省、每轮常驻节省与趋势排行。
 
+## 🏗 系统架构
+
+<p align="center">
+  <img src="diagrams/Token_Saver.svg" alt="SkillForge 系统架构" width="92%">
+</p>
+
 ## 目录结构
 
 ```
@@ -76,3 +113,12 @@ skill-forge/
 
 会话总节省 ≈ Σ(各技能 description 清洗后减少的 token) × 会话轮次。
 例如 20 个技能各压缩 30 token，则每轮省 600 token，千轮会话省约 60 万 token。
+
+
+---
+
+<div align="center">
+
+**Made with ❤️ by Hyhyhyyy**
+
+</div>
