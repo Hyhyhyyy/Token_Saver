@@ -241,6 +241,20 @@ body::after {
 .kpi-extra { display: contents; }
 .kpi-sub { font-size: 11px; color: var(--muted); }
 
+/* 进化看板 · 账本时间线（复用既有变量与组件，仅新增承载类） */
+.ledger-row {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px; margin-bottom: 6px;
+  border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,0.02);
+  font-size: 12.5px; animation: rise .35s ease backwards;
+}
+.ledger-row:hover { background: rgba(52,224,200,0.05); }
+.ledger-badge { flex-shrink: 0; }
+.ledger-obj { color: var(--primary); min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-vals { color: var(--text); flex: 1; }
+.ledger-trigger { flex-shrink: 0; }
+.ledger-ts { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+.ledger-note { color: var(--muted); font-size: 11px; margin-left: auto; max-width: 240px; text-align: right; }
+
 select, input[type="file"] { font-family: inherit; }
 select { background: var(--panel-solid); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 

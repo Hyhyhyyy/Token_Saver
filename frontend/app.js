@@ -534,6 +534,7 @@ function showView(name) {
     sim: ["nav-sim", "view-sim"],
     conflicts: ["nav-conflicts", "view-conflicts"],
     dashboard: ["nav-dashboard", "view-dashboard"],
+    evolve: ["nav-evolve", "view-evolve"],
   };
   for (const [n, [btn, view]] of Object.entries(map)) {
     $(btn).classList.toggle("active", n === name);
@@ -542,12 +543,14 @@ function showView(name) {
   if (name === "sim") renderSim();
   if (name === "conflicts") renderConflicts();
   if (name === "dashboard") renderDashboard();
+  if (name === "evolve") renderEvolve();
 }
 function bindNav() {
   $("#nav-assets").onclick = () => showView("assets");
   $("#nav-sim").onclick = () => showView("sim");
   $("#nav-conflicts").onclick = () => showView("conflicts");
   $("#nav-dashboard").onclick = () => showView("dashboard");
+  $("#nav-evolve").onclick = () => showView("evolve");
 }
 function bindTabs() {
   document.querySelectorAll(".tab[data-tab]").forEach((t) => t.onclick = () => switchTab(t.dataset.tab));
@@ -557,6 +560,143 @@ function switchTab(name) {
   ["overview", "validate", "clean", "track"].forEach((n) => $("#tab-" + n).classList.toggle("hidden", n !== name));
   if (name === "clean" && !$("#tab-clean").innerHTML) runClean();
   if (name === "track") renderTrack();
+}
+
+/* ---------- 进化看板（v2.1 · 自主进化引擎 + 进化账本） ---------- */
+function renderEvolve() {
+  bindEvolveNav();
+  loadLedger();
+}
+
+function bindEvolveNav() {
+  $("#evolveBootstrapBtn").onclick = bootstrapGold;
+  $("#evolveRunBtn").onclick = runEvolve;
+  $("#evolveReportBtn").onclick = exportReport;
+  $("#evolveCalibrateBtn").onclick = loadCalibration;
+  $("#ledgerLimit").onchange = loadLedger;
+}
+
+async function loadLedger() {
+  const limit = +($("#ledgerLimit")?.value || 50);
+  $("#ledger-timeline").innerHTML = `<div class="note">加载账本…</div>`;
+  try {
+    const r = await api(`/api/evolve/ledger?limit=${limit}`);
+    renderTrendCards();
+    if (!r.entries.length) {
+      $("#ledger-timeline").innerHTML = `<div class="card"><div class="note">暂无进化记录。运行「🌱 播种」或「▶ 运行自主进化」开始积累。</div></div>`;
+      return;
+    }
+    const badgeClass = {
+      gold_seed: "valid", budget_auto_recall: "warning",
+      budget_manual_override: "warning", conflict_rule_deposit: "invalid",
+      calibration: "info",
+    };
+    const rows = r.entries.map((e) => {
+      const cls = badgeClass[e.action_type] || "info";
+      return `<div class="ledger-row">
+        <span class="ledger-badge badge ${cls}">${esc(e.action_type)}</span>
+        <span class="ledger-obj mono">${esc(e.object || "—")}</span>
+        <span class="ledger-vals mono">${esc(e.before_val || "∅")} → ${esc(e.after_val || "∅")}</span>
+        <span class="ledger-trigger tag">${esc(e.trigger)}</span>
+        <span class="ledger-ts">${esc((e.ts || "").slice(0, 19).replace("T", " "))}</span>
+        <span class="ledger-note">${esc(e.note || "")}</span>
+      </div>`;
+    }).join("");
+    $("#ledger-timeline").innerHTML = `<div class="card"><h3>账本时间线（${r.count}）</h3>${rows}</div>`;
+  } catch (e) {
+    $("#ledger-timeline").innerHTML = `<div class="card" style="color:var(--red)">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function bootstrapGold() {
+  const force = window.confirm("强制重新播种缺失技能？（取消 = 仅在 gold 不足阈值时播种）");
+  try {
+    const r = await api("/api/evolve/bootstrap-gold", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force }),
+    });
+    toast(`已播种 ${r.seeded} 个技能 gold 样本（共 ${r.total} 条）`);
+    loadLedger();
+  } catch (e) {
+    toast("播种失败：" + e.message);
+  }
+}
+
+async function runEvolve() {
+  $("#ledger-timeline").innerHTML = `<div class="note">自主进化运行中…</div>`;
+  try {
+    const r = await api("/api/evolve/run", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    toast(`进化完成：播种 ${r.gold.seeded} · 自动回调 ${r.auto_recalled.length} · 沉淀规则 ${r.deposited_rules.length}`);
+    renderTrendCards();
+    loadLedger();
+  } catch (e) {
+    toast("进化失败：" + e.message);
+  }
+}
+
+async function loadCalibration() {
+  const limit = +($("#calibLimit")?.value || 30);
+  $("#calibration-panel").innerHTML = `<div class="note">校准中…</div>`;
+  try {
+    const r = await api(`/api/evolve/calibration?limit=${limit}`);
+    if (!r.available) {
+      // 未启用 embedding：提示而非报错
+      $("#calibration-panel").innerHTML = `<div class="note">未启用：当前未配置 embedding 后端（${esc(r.reason || "")}）。仅使用 local-tfidf 打分，无需校准。</div>`;
+      return;
+    }
+    const pairs = (r.top_divergent_pairs || []).map((p) =>
+      `<div class="kv"><span class="k">${esc(p.skill_a)} ↔ ${esc(p.skill_b)}</span><span class="mono">local ${p.sim_local} / emb ${p.sim_emb} · 差 ${p.diff}</span></div>`
+    ).join("");
+    $("#calibration-panel").innerHTML = `
+      <div class="kv"><span class="k">可用性</span><span><b style="color:var(--green)">已启用</b> · 采样 ${r.sample_pairs} 对</span></div>
+      <div class="kv"><span class="k">Pearson 相关性</span><span class="mono">${r.correlation ?? "N/A"}</span></div>
+      <div class="kv"><span class="k">排序分歧</span><span class="mono">${r.rank_divergence ?? "N/A"}</span></div>
+      <div class="card" style="margin-top:8px"><h3>分歧最大的技能对</h3>${pairs || "<div class='note'>无</div>"}</div>`;
+  } catch (e) {
+    $("#calibration-panel").innerHTML = `<div class="note" style="color:var(--red)">校准失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function exportReport() {
+  try {
+    const resp = await fetch("/api/evolve/report?format=markdown");
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const text = await resp.text();
+    const blob = new Blob([text], { type: "text/markdown" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "evolution_report.md";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("已导出 evolution_report.md");
+  } catch (e) {
+    toast("导出失败：" + e.message);
+  }
+}
+
+/* P1-4 看板趋势卡：累计动作 / 自动回调技能数 / 沉淀规则数 / 最近进化时间 */
+async function renderTrendCards() {
+  try {
+    const r = await api("/api/evolve/report?format=json");
+    const s = r.summary || { total: 0, by_action_type: {} };
+    const autoRecall = s.by_action_type["budget_auto_recall"] || 0;
+    const deposited = s.by_action_type["conflict_rule_deposit"] || 0;
+    const lastTs = (r.entries && r.entries[0] && r.entries[0].ts)
+      ? r.entries[0].ts.slice(0, 19).replace("T", " ") : "—";
+    const kpis = [
+      { l: "累计自进化动作", v: s.total, u: "次", num: true },
+      { l: "自动回调技能", v: autoRecall, u: "次", num: true },
+      { l: "沉淀规则", v: deposited, u: "条", num: true },
+      { l: "最近进化时间", v: lastTs, u: "", num: false },
+    ];
+    $("#evolveKpiRow").innerHTML = kpis.map((k) =>
+      `<div class="kpi"><div class="v">${k.num ? `<span data-count="${k.v}">0</span>` : esc(k.v)}</div>` +
+      `<div class="l">${esc(k.l)}${k.u ? " (" + k.u + ")" : ""}</div></div>`
+    ).join("");
+    if (s.total) countUpAll($("#evolveKpiRow"));
+  } catch (e) { /* 静默：不影响账本渲染 */ }
 }
 
 init().catch((e) => { $("#meta").textContent = "初始化失败：" + e.message; });

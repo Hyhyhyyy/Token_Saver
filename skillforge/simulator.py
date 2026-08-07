@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from .skill_parser import scan_skills
 from .cleaner import clean_description
-from .scorer import get_vectorizer
+from .scorer import get_vectorizer, LocalTfidfBackend
 from . import gold, budget, pricing, simbank
 from .config import (
     CONFLICT_DEFAULT_THRESHOLD,
@@ -37,6 +37,29 @@ def _argmax(descs: dict, query: str, vec) -> str:
         if sc > best_score:
             best_score, best = sc, sk
     return best
+
+
+def _resolve_vectorizer(backend_name: str | None,
+                        probe_a: str = "",
+                        probe_b: str = "") -> tuple:
+    """取得打分器，并对 embedding 后端做探活（缺陷2 自愈）。
+
+    embedding 后端在 score()/similarity() 时才真正发起远程调用；若探活抛异常
+    （api_url 错误 / 网络不可达 / 超时），自动回退 LocalTfidfBackend 完成本次
+    模拟/冲突检测，绝不向上抛 500。仅当 probe_a/probe_b 均非空时才探活（避免无
+    数据时多余的网络调用）。get_vectorizer 默认 local-tfidf 时直接返回。
+
+    返回 (vec, note)；note 非空表示发生了回退。
+    """
+    vec = get_vectorizer(backend_name)
+    note = ""
+    if vec.__class__.__name__ == "EmbeddingBackend" and probe_a and probe_b:
+        try:
+            vec.score(probe_a, probe_b)
+        except Exception:  # noqa: BLE001
+            vec = LocalTfidfBackend()
+            note = "embedding 不可用，已回退 local-tfidf"
+    return vec, note
 
 
 def run_schedule_sim(backend_name: str | None = None, use_llm: bool = False) -> dict:
@@ -67,9 +90,15 @@ def run_schedule_sim(backend_name: str | None = None, use_llm: bool = False) -> 
     ]
     total = len(matched)
 
-    # 控制变量：同一向量化器实例（IDF 拟合一次，before/after 共用）
-    vec = get_vectorizer(backend_name)
+    # 构造打分器（缺陷2 自愈：embedding 不可达自动回退 local-tfidf，绝不 500）
     corpus = list(before.values()) + [g["query"] for g in matched]
+    if matched:
+        vec, note = _resolve_vectorizer(
+            backend_name, matched[0]["query"], before[matched[0]["skill_id"]]
+        )
+    else:
+        vec = get_vectorizer(backend_name)
+        note = ""
     vec.fit(corpus)
 
     hits_before: dict[str, int] = defaultdict(int)
@@ -139,6 +168,7 @@ def run_schedule_sim(backend_name: str | None = None, use_llm: bool = False) -> 
         "per_skill": per_skill,
         "regressed_skills": regressed_skills,
         "message": message,
+        "note": note,
         "ran_at": _now(),
     }
 
@@ -209,7 +239,23 @@ def detect_conflicts(threshold: float | None = None,
     skills = scan_skills()
     items = [(s["name"], s["frontmatter"].get("description") or "") for s in skills]
 
-    vec = get_vectorizer(backend_name)
+    # 缺陷2 自愈：embedding 不可达时回退 local-tfidf（避免 /api/conflicts 与
+    # run_evolve 走 embedding 时抛 500）。用首个「两描述均非空」的真实技能对做探活，
+    # 并保留 note 透传给调用方（前端/排查可观测回退）。
+    note = ""
+    if items:
+        probe_a, probe_b = "", ""
+        for i, (a, da) in enumerate(items):
+            for j in range(i + 1, len(items)):
+                b, db = items[j]
+                if da and db:
+                    probe_a, probe_b = da, db
+                    break
+            if probe_a:
+                break
+        vec, note = _resolve_vectorizer(backend_name, probe_a, probe_b)
+    else:
+        vec = get_vectorizer(backend_name)
     vec.fit([d for _, d in items])
 
     pairs = []
@@ -239,4 +285,5 @@ def detect_conflicts(threshold: float | None = None,
         "threshold": round(threshold, 4),
         "backend": _backend_label(vec),
         "pairs": pairs,
+        "note": note,
     }

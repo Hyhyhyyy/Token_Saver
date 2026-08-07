@@ -63,11 +63,16 @@ def description_tokens(frontmatter: dict) -> int:
     return count_tokens(desc)
 
 
-def scan_skills() -> list[dict]:
-    """递归扫描所有配置目录，收集 SKILL.md。"""
+def scan_skills(dirs: list | None = None) -> list[dict]:
+    """递归扫描技能目录，收集 SKILL.md。
+
+    dirs 为 None 时回退到既有 SKILLS_DIRS 行为（v2.0 不变）；
+    bootstrap_gold 传 dirs=[config.USER_SKILLS_DIR] 只扫用户目录（v2.1 增量）。
+    """
+    bases = dirs if dirs is not None else SKILLS_DIRS
     results = []
     seen = set()
-    for base in SKILLS_DIRS:
+    for base in bases:
         if not base.exists():
             continue
         for p in base.rglob("SKILL.md"):

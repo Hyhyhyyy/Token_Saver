@@ -1,0 +1,68 @@
+%% 进化引擎调用时序图（run_evolve 编排 + 开机 hook + calibrate）
+%% 对应 docs/arch-evo2.md §4
+
+sequenceDiagram
+    autonumber
+    participant U as 前端(进化看板)
+    participant S as server
+    participant E as evolve
+    participant G as gold
+    participant SP as skill_parser
+    participant SIM as simulator
+    participant B as budget
+    participant CR as custom_rules
+    participant L as simbank.evolution_ledger
+
+    Note over U,L: —— 分支A：run_evolve 编排 ——
+    U->>S: POST /api/evolve/run {seed_threshold?}
+    S->>E: run_evolve(seed_threshold)
+    E->>G: get_gold() → len < threshold?
+    alt gold 不足（或 force）
+        E->>SP: scan_skills(dirs=[USER_SKILLS_DIR])
+        E->>G: 仅补缺失 skill_id → set_gold(merged)
+        loop 每个新播种 skill
+            E->>L: log_evolution(gold_seed, sid, "", query, evolve_engine/auto_bootstrap)
+        end
+    end
+    E->>B: before = load_overrides()
+    E->>SIM: run_schedule_sim() → 内部回归≥2 调 auto_recall 写 overrides.json
+    E->>B: after = load_overrides()
+    E->>E: _capture_auto_recall(before, after, f1_schedule)
+    loop 每个 target 上移的 skill
+        E->>L: log_evolution(budget_auto_recall, sid, before, after, f1_schedule)
+    end
+    E->>SIM: detect_conflicts(threshold=0.9)
+    loop 每对 sim≥0.9
+        E->>CR: deposit_custom_rule(shared_keywords, suggestion)
+        E->>L: log_evolution(conflict_rule_deposit, rule_id, "", cluster, f3_conflict)
+    end
+    E-->>S: {gold, schedule, auto_recalled, deposited_rules, ledger_new, ran_at}
+    S-->>U: 渲染时间线
+
+    Note over U,L: —— 分支B：开机自启 hook（lifespan） ——
+    Note over S: AUTO_EVOLVE_ON_START == true 时才执行
+    S->>E: bootstrap_gold(trigger="startup")
+    E->>L: log_evolution(gold_seed, sid, "", query, startup)
+    S->>B: before = load_overrides()
+    S->>SIM: run_schedule_sim() → 内部自动回调
+    S->>B: after = load_overrides()
+    S->>E: _capture_auto_recall(before, after, "startup")
+    E->>L: log_evolution(budget_auto_recall, sid, before, after, startup)
+
+    Note over U,L: —— 分支C：校准器 calibrate ——
+    U->>S: GET /api/evolve/calibration ?limit=
+    S->>E: calibrate(limit)
+    E->>B: 读 vectorizer.json：backend==embedding 且配 api_url?
+    alt 未配置
+        E-->>S: {available:false, reason:...}
+    else 已配置
+        E->>SIM: LocalTfidfBackend().similarity 对所有技能对打分
+        E->>E: 取 local-tfidf 相似度最高前 limit 对
+        loop 每对
+            E->>SIM: local.similarity(a,b) → sim_local
+            E->>SIM: EmbeddingBackend(api_url).similarity(a,b) → sim_emb
+        end
+        E->>E: statistics.correlation(Pearson) + 归一化平均序差
+        E->>L: log_evolution(calibration, "scorer", "", "corr=..;rank_div=..", manual)
+        E-->>S: {available:true, sample_pairs, correlation, rank_divergence, top_divergent_pairs, ran_at}
+    end

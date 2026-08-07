@@ -4,8 +4,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -16,13 +18,33 @@ from .tracker import log_event, get_stats, get_series, get_leaderboard, get_skil
 from .tokenizer import BACKEND, count_tokens
 from .spec import STANDARD_VERSION, SKILL_TEMPLATE, DESC_TEMPLATE, DESC_EXAMPLE, get_validation_rules
 from . import config
-from . import budget, gold, pricing, custom_rules, simulator, simbank
+from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve
 from .scorer import get_vectorizer, _load_vectorizer_config
 import json
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
-app = FastAPI(title="SkillForge · 技能精炼台", version=__version__)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """开机自启 Hook（E5，受 AUTO_EVOLVE_ON_START 开关控制，默认 false）。
+
+    为 true 时顺序执行：bootstrap_gold(trigger="startup") → 快照 overrides →
+    run_schedule_sim() → 后快照 → _capture_auto_recall(trigger="startup") 写账。
+    任何异常吞掉仅记录，绝不影响应用就绪；默认 false 不写任何 ledger / 不新增 gold。
+    """
+    if config.auto_evolve_on_start():
+        try:
+            evolve.bootstrap_gold(force=True, trigger="startup")
+            before = budget.load_overrides()
+            simulator.run_schedule_sim()
+            after = budget.load_overrides()
+            evolve._capture_auto_recall(before, after, "startup")
+        except Exception as e:  # noqa: BLE001
+            print(f"[evolve] 开机自启异常（已吞掉，不影响启动）：{e}")
+    yield
+
+
+app = FastAPI(title="SkillForge · 技能精炼台", version=__version__, lifespan=lifespan)
 
 
 @app.get("/api/health")
@@ -267,6 +289,12 @@ async def put_custom_rule(request: Request):
         obj = custom_rules.deposit_custom_rule(kc, suggestion, rule, severity)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # 落点补记账本（E1）：手动沉淀冲突规则
+    simbank.log_evolution(
+        "conflict_rule_deposit", obj["id"], "",
+        json.dumps(obj.get("keyword_cluster", []), ensure_ascii=False),
+        "manual", "手动沉淀冲突规则",
+    )
     return {"rule": obj}
 
 
@@ -326,10 +354,16 @@ async def put_sim_budget(request: Request):
         raise HTTPException(400, "缺少 skill_id")
     target = data.get("target")
     target = int(target) if target is not None else None
+    before = budget.effective_target(skill_id)
     try:
         entry = budget.manual_recall(skill_id, target)
     except (TypeError, ValueError):
         raise HTTPException(400, "target 必须为整数")
+    # 落点补记账本（E1）：手动回调压缩预算
+    simbank.log_evolution(
+        "budget_manual_override", skill_id, str(before), str(entry["target"]),
+        "manual", "手动回调压缩预算",
+    )
     return {
         "skill_id": skill_id,
         "target": entry["target"],
@@ -343,6 +377,63 @@ def get_sim_trends():
         "schedule": simbank.get_schedule_trend(),
         "cost": simbank.get_cost_trend(),
     }
+
+
+# ============================ 自进化引擎（v2.1 · 进化账本 / 自主进化） ============================
+
+@app.get("/api/evolve/ledger")
+def get_evolve_ledger(limit: int = 50, action_type: str | None = None, object: str | None = None):
+    """分页 + 过滤查询进化账本。limit 夹紧 [1,200]。"""
+    lim = max(1, min(200, int(limit)))
+    return simbank.get_ledger(limit=lim, action_type=action_type, object=object)
+
+
+@app.get("/api/evolve/report")
+def get_evolve_report(format: str = "markdown", since: str | None = None, until: str | None = None):
+    """导出进化报告。format=markdown 返回 text/markdown 字符串（前端 Blob 下载）；
+    format=json 返回 {generated_at, summary, entries}。since/until 支持时间窗（P1-3）。"""
+    if format not in ("markdown", "json"):
+        format = "markdown"
+    result = simbank.build_report(format=format, since=since, until=until)
+    if format == "json":
+        return result
+    return Response(content=result, media_type="text/markdown; charset=utf-8")
+
+
+@app.post("/api/evolve/bootstrap-gold")
+async def post_bootstrap_gold(request: Request):
+    """播种用户真实技能的 gold 样本（GOAL-1 真实信号）。可选 {force?}。"""
+    try:
+        data = await request.json()
+    except Exception:  # noqa: BLE001
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    force = bool(data.get("force", False))
+    return evolve.bootstrap_gold(force=force, trigger="auto_bootstrap")
+
+
+@app.get("/api/evolve/calibration")
+def get_calibration(limit: int = config.CALIBRATION_SAMPLE_PAIRS):
+    """校准：local-tfidf vs embedding 打分对比（E3）。未配 embedding 返回 {available:false}（200）。"""
+    return evolve.calibrate(limit=limit)
+
+
+@app.post("/api/evolve/run")
+async def post_evolve_run(request: Request):
+    """运行自主进化引擎（E4）：播种 → 调度模拟 → 冲突沉淀 → 写账本。可选 {seed_threshold?}。"""
+    try:
+        data = await request.json()
+    except Exception:  # noqa: BLE001
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    seed_threshold = data.get("seed_threshold")
+    seed_threshold = int(seed_threshold) if isinstance(seed_threshold, int) else None
+    try:
+        return evolve.run_evolve(seed_threshold=seed_threshold)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"自主进化失败：{e}")
 
 
 # ---- 静态前端 ----

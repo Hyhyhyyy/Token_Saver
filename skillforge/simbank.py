@@ -46,6 +46,22 @@ CREATE TABLE IF NOT EXISTS sim_regressions (
     last_target  INTEGER,
     updated_at   TEXT
 );
+
+-- 进化账本（v2.1 新增）：统一记录每一次自进化动作（GOAL-3 可追溯）
+CREATE TABLE IF NOT EXISTS evolution_ledger (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    object      TEXT,
+    before_val  TEXT,
+    after_val   TEXT,
+    trigger     TEXT,
+    note        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_ts        ON evolution_ledger(ts);
+CREATE INDEX IF NOT EXISTS idx_ledger_action    ON evolution_ledger(action_type);
+CREATE INDEX IF NOT EXISTS idx_ledger_object    ON evolution_ledger(object);
 """
 
 
@@ -148,3 +164,126 @@ def get_cost_trend(limit: int = 30) -> list[dict]:
     ).fetchall()
     c.close()
     return [dict(r) for r in rows]
+
+
+# ============================================================
+# 进化账本（v2.1 新增 · GOAL-3 可追溯）
+# 复用同一 _conn() 单连接，不改动 v2.0 三张表。
+# ============================================================
+
+def log_evolution(action_type: str, object: str, before_val: str,
+                  after_val: str, trigger: str, note: str = "") -> dict:
+    """写一行 evolution_ledger，返回该行 dict（含自增 id、ts）。"""
+    c = _conn()
+    cur = c.execute(
+        "INSERT INTO evolution_ledger (ts, action_type, object, before_val, after_val, trigger, note) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (_now(), action_type, object, before_val, after_val, trigger, note),
+    )
+    row = c.execute(
+        "SELECT * FROM evolution_ledger WHERE id=?", (cur.lastrowid,)
+    ).fetchone()
+    c.commit()
+    c.close()
+    return dict(row)
+
+
+def get_ledger(limit: int = 50, action_type: str | None = None,
+               object: str | None = None) -> dict:
+    """分页 + 过滤查询进化账本。
+
+    返回 {count, entries:[{id,ts,action_type,object,before_val,after_val,trigger,note}]}。
+    limit 夹紧到 [1,200]；action_type/object 为空表示不过滤；按 ts DESC、id DESC。
+    """
+    limit = max(1, min(200, int(limit)))
+    clauses = []
+    params: list = []
+    if action_type is not None:
+        clauses.append("action_type = ?")
+        params.append(action_type)
+    if object is not None:
+        clauses.append("object = ?")
+        params.append(object)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM evolution_ledger" + where +
+        " ORDER BY ts DESC, id DESC LIMIT ?",
+        params + [limit],
+    ).fetchall()
+    c.close()
+    entries = [dict(r) for r in rows]
+    return {"count": len(entries), "entries": entries}
+
+
+def _evolution_rows(since: str | None = None, until: str | None = None,
+                    limit: int | None = None) -> list[dict]:
+    """按时间窗（ISO 字符串）拉取账本行，ISO 字符串可直接按字典序比较。"""
+    clauses = []
+    params: list = []
+    if since is not None:
+        clauses.append("ts >= ?")
+        params.append(since)
+    if until is not None:
+        clauses.append("ts <= ?")
+        params.append(until)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    q = "SELECT * FROM evolution_ledger" + where + " ORDER BY ts DESC, id DESC"
+    if limit is not None:
+        q += " LIMIT ?"
+        params.append(int(limit))
+    c = _conn()
+    rows = c.execute(q, params).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def build_report(format: str = "markdown", since: str | None = None,
+                 until: str | None = None) -> str | dict:
+    """按时间窗汇总进化账本。
+
+    format='json'  → {generated_at, summary:{total, by_action_type}, entries}
+    format='markdown' → 标题 + 各 action_type 计数表 + 时间线列表（供前端 Blob 下载）。
+    """
+    rows = _evolution_rows(since, until)
+    by_action_type: dict[str, int] = {}
+    for r in rows:
+        by_action_type[r["action_type"]] = by_action_type.get(r["action_type"], 0) + 1
+    summary = {"total": len(rows), "by_action_type": by_action_type}
+    generated_at = _now()
+
+    if format == "json":
+        return {"generated_at": generated_at, "summary": summary, "entries": rows}
+
+    lines: list[str] = []
+    lines.append("# SkillForge 进化报告（Evolution Report）")
+    lines.append("")
+    lines.append(f"- 生成时间：{generated_at}")
+    if since or until:
+        lines.append(f"- 时间窗：{since or '起点'} ~ {until or '现在'}")
+    lines.append(f"- 动作总数：{summary['total']}")
+    lines.append("")
+    lines.append("## 动作类型计数")
+    lines.append("")
+    lines.append("| 动作类型 | 数量 |")
+    lines.append("| --- | --- |")
+    if by_action_type:
+        for at, cnt in sorted(by_action_type.items(), key=lambda x: -x[1]):
+            lines.append(f"| {at} | {cnt} |")
+    else:
+        lines.append("| （无） | 0 |")
+    lines.append("")
+    lines.append("## 进化时间线")
+    lines.append("")
+    if not rows:
+        lines.append("（无记录）")
+    else:
+        for r in rows:
+            line = (
+                f"- [{r['ts']}] **{r['action_type']}** · 对象 `{r['object'] or ''}` · "
+                f"值 `{r['before_val'] or ''}` → `{r['after_val'] or ''}` · 触发 `{r['trigger']}`"
+            )
+            if r["note"]:
+                line += f" · {r['note']}"
+            lines.append(line)
+    return "\n".join(lines)

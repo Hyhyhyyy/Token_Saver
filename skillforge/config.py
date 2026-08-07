@@ -73,3 +73,26 @@ BUDGET_RECALL_TRIGGER = 2
 
 # 定价快照日期（仅供仿真参考，实际以厂商官方为准）
 PRICING_AS_OF = "2025-09"
+
+# ---- 自进化 v2.1 增量配置（GOAL-1 真实信号 / GOAL-2 自主运行 / GOAL-3 可追溯）----
+# 用户真实技能目录（gold 自动播种扫描目标）。可用环境变量覆盖，默认 ~/.workbuddy/skills。
+USER_SKILLS_DIR = Path(
+    os.environ.get("USER_SKILLS_DIR", str(Path(os.path.expanduser("~/.workbuddy/skills"))))
+)
+
+# gold 样本数 < 此值则 run_evolve / bootstrap 自动播种真实技能信号
+GOLD_SEED_THRESHOLD = 3
+# F3 语义相似度 ≥ 此值，run_evolve 自动沉淀冲突规则（P0）
+CONFLICT_AUTO_DEPOSIT_THRESHOLD = 0.9
+# 校准采样技能对数（取 local-tfidf 相似度最高的前 N 对）
+CALIBRATION_SAMPLE_PAIRS = 30
+# F1 回归技能的「规则自动沉淀」开关（P1，默认关闭，避免噪声规则）
+EVOLVE_AUTO_DEPOSIT_F1_RULE = False
+
+
+def auto_evolve_on_start() -> bool:
+    """开机自启开关：读取 AUTO_EVOLVE_ON_START 环境变量（默认 false）。
+
+    每次调用求值、不缓存，避免进程期内环境变量变更被忽略。
+    """
+    return os.environ.get("AUTO_EVOLVE_ON_START", "false").lower() == "true"

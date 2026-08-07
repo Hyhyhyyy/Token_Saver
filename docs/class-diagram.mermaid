@@ -1,0 +1,81 @@
+%% 进化引擎模块类图（对齐真实签名）
+%% 对应 docs/arch-evo2.md §2 / §3
+
+classDiagram
+    direction LR
+
+    class EvolveEngine {
+        +bootstrap_gold(force, threshold, trigger) dict
+        +calibrate(limit) dict
+        +run_evolve(seed_threshold) dict
+        -_capture_auto_recall(before, after, trigger) list~dict~
+    }
+
+    class Ledger {
+        +log_evolution(action_type, object, before_val, after_val, trigger, note) dict
+        +get_ledger(limit, action_type, object) dict
+        +build_report(format, since, until) str|dict
+    }
+
+    class Gold {
+        +get_gold() list
+        +set_gold(samples) list
+    }
+
+    class Budget {
+        +load_overrides() dict
+        +effective_target(skill_id) int
+        +auto_recall(skill_id) dict
+        +manual_recall(skill_id, target) dict
+    }
+
+    class CustomRules {
+        +deposit_custom_rule(keyword_cluster, suggestion, rule, severity) dict
+        +load_custom_rules() list
+    }
+
+    class Simulator {
+        +run_schedule_sim(backend_name, use_llm) dict
+        +detect_conflicts(threshold, backend_name) dict
+    }
+
+    class Scorer {
+        +get_vectorizer() VectorizerBackend
+    }
+
+    class LocalTfidfBackend {
+        +similarity(a, b) float
+        +score(q, d) float
+    }
+
+    class EmbeddingBackend {
+        +similarity(a, b) float
+        +score(q, d) float
+    }
+
+    class SkillParser {
+        +scan_skills(dirs) list
+    }
+
+    class Config {
+        +USER_SKILLS_DIR Path
+        +GOLD_SEED_THRESHOLD int
+        +CONFLICT_AUTO_DEPOSIT_THRESHOLD float
+        +CALIBRATION_SAMPLE_PAIRS int
+        +EVOLVE_AUTO_DEPOSIT_F1_RULE bool
+        +auto_evolve_on_start() bool
+    }
+
+    EvolveEngine --> Gold : 播种/读写
+    EvolveEngine --> SkillParser : 扫真实技能目录
+    EvolveEngine --> Simulator : 跑模拟/检测冲突
+    EvolveEngine --> Budget : 快照 overrides/diff
+    EvolveEngine --> CustomRules : 沉淀规则
+    EvolveEngine --> Ledger : 全程记账
+    EvolveEngine --> Config : 读阈值/开关
+    EvolveEngine --> Scorer : calibrate 取两后端
+    Scorer <|-- LocalTfidfBackend
+    Scorer <|-- EmbeddingBackend
+    Ledger ..> Config : DB_PATH 单连接
+    Simulator --> Budget : 自动回调
+    Simulator --> Ledger : log_schedule_sim/bump_regression

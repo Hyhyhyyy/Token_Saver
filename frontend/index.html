@@ -20,6 +20,7 @@
       <button id="nav-sim" class="nav-btn">仿真沙盘</button>
       <button id="nav-conflicts" class="nav-btn">冲突检测</button>
       <button id="nav-dashboard" class="nav-btn">数据看板</button>
+      <button id="nav-evolve" class="nav-btn">进化</button>
     </nav>
     <div class="meta" id="meta">加载中…</div>
   </header>
@@ -103,6 +104,42 @@
         <div id="specRules" class="rules"></div>
       </div>
     </div>
+  </section>
+
+  <!-- 进化看板视图（v2.1 · 自主进化引擎 + 进化账本） -->
+  <section id="view-evolve" class="view hidden">
+    <main class="detail" style="width:100%">
+      <div class="kpi-row" id="evolveKpiRow"></div>
+
+      <div class="card">
+        <h3>进化账本 · 自进化动作时间线</h3>
+        <div class="row">
+          <button class="btn" id="evolveBootstrapBtn">🌱 播种 Gold 样本</button>
+          <button class="btn" id="evolveRunBtn">▶ 运行自主进化</button>
+          <button class="btn" id="evolveReportBtn">📤 导出进化报告</button>
+          <select id="ledgerLimit" style="margin-left:auto">
+            <option value="20">最近 20 条</option>
+            <option value="50" selected>最近 50 条</option>
+            <option value="100">最近 100 条</option>
+            <option value="200">最近 200 条</option>
+          </select>
+        </div>
+        <div class="note">GOAL-3 可追溯：每次自进化动作（gold 播种 / 预算自动回调 / 冲突规则沉淀 / 校准）都会写入进化账本，可在此审计「谁、何时、改了谁、前后值、触发源」。</div>
+      </div>
+
+      <div id="ledger-timeline"></div>
+
+      <div class="card">
+        <h3>🔬 打分器校准（local-tfidf vs embedding）</h3>
+        <div class="row">
+          <button class="btn secondary" id="evolveCalibrateBtn">运行校准</button>
+          <label style="font-size:13px;color:var(--muted)">采样对数
+            <input type="number" id="calibLimit" value="30" min="1" max="200" style="width:64px">
+          </label>
+        </div>
+        <div id="calibration-panel" class="note">点击「运行校准」查看 local-tfidf 与 embedding 的打分分歧（需配置 embedding 后端 api_url）。</div>
+      </div>
+    </main>
   </section>
 
   <div id="toast" class="toast hidden"></div>
