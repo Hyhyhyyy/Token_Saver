@@ -1,0 +1,125 @@
+classDiagram
+    direction LR
+
+    %% ===== 新增类：技能签名侦测（A-1） =====
+    class SkillSignature {
+        <<module: skillforge/skill_signature.py>>
+        +compute_signatures(skills_dir) dict~str,str~
+        +load_saved_signatures(path) dict~str,str~
+        +compare_signatures(current, saved) dict
+        +save_signatures(sigs, path) void
+        +detect_external_change(skills_dir, path) tuple~dict,bool~
+    }
+
+    %% ===== 新增类：跨进程文件锁（C-2） =====
+    class FileLock {
+        <<module: skillforge/filelock.py · stdlib fcntl/msvcrt>>
+        -_lock_path: Path
+        -_timeout: float
+        -_enabled: bool
+        -_fh: file
+        -_acquired: bool
+        +__init__(lock_path, timeout, enabled) void
+        +__enter__() FileLock
+        +__exit__(*exc) void
+        +acquired() bool
+    }
+
+    %% ===== 改动类：EvolveEngine（A-1/A-2/A-3） =====
+    class EvolveEngine {
+        <<module: skillforge/evolve.py>>
+        +run_evolve(seed_threshold, trigger) dict
+        -_refresh_changed_gold(changed_names) int   %% A-1：更新"已改"技能的 gold query
+        +bootstrap_gold(force, threshold, trigger) dict  %% 沿用（已确认幂等）
+    }
+
+    %% ===== 改动类：AutoLoopController（C-1/C-2） =====
+    class AutoLoopController {
+        <<module: skillforge/auto_loop.py>>
+        +start() void   %% C-1：ensure_future → get_running_loop().create_task
+        +run_once(trigger) dict   %% C-2：包裹 filelock
+        +run_protected(fn) dict    %% C-2：包裹 filelock
+        -_with_filelock(fn) dict   %% 新增：跨进程锁获取/跳过
+    }
+
+    %% ===== 改动类：Scorer（D-1/D-2） =====
+    class Scorer {
+        <<module: skillforge/scorer.py>>
+        +probe_ollama(url, timeout) bool            %% D-2 新增
+        +set_ollama_available(flag) void            %% D-2 新增
+        +get_ollama_available() bool|None           %% D-2 新增
+        +ensure_default_vectorizer() dict           %% D-2 新增
+        +resolve_backend_source() dict              %% D-2 新增
+    }
+
+    %% ===== 改动类：Config（A-3/B-2/C-2/D-1/D-2 配置旋钮） =====
+    class Config {
+        <<module: skillforge/config.py>>
+        +GOLD_COVERAGE_LOW_WATERMARK float   %% A-3 默认 80
+        +ANOMALY_F1_DROP float               %% B-2 默认 0.1
+        +ANOMALY_COV_DROP float               %% B-2 默认 5
+        +FILELOCK_TIMEOUT_SEC float           %% C-4 默认 5
+        +LOCK_PATH Path                       %% DATA_DIR/.skillforge.lock
+        +SKILLS_SIGNATURE_PATH Path           %% DATA_DIR/skills_signature.json
+        +VECTORIZER_PRESET_ST_PATH Path       %% <repo>/data/vectorizer.local-st.json
+        +EMBEDDING_PROBE_URL str              %% 默认同 EMBEDDING_API_URL
+        +__version__ str                      %% 2.2.0-evo → 2.3.0-evo
+    }
+
+    %% ===== 改动类：Server（D-2 端点增强） =====
+    class Server {
+        <<module: skillforge/server.py>>
+        +lifespan(app) void                    %% D-2：启动探测+落地 vectorizer.json
+        +get_vectorizer_config() dict          %% D-2：+backend_source/ollama_available
+        +post_probe_vectorizer() dict          %% D-2 新增：显式刷新探测
+    }
+
+    %% ===== 复用类（v2.2 既有，本次不改动接口） =====
+    class Simbank {
+        <<module: skillforge/simbank.py>>
+        +log_evolution(action_type, object, before, after, trigger, note) dict
+        +log_evolution_metric(gold_coverage, f1_before, f1_after) dict
+        +get_evolution_metrics(limit) list~dict~
+        +get_ledger(limit, action_type, since, until) dict
+    }
+    class Gold {
+        <<module: skillforge/gold.py>>
+        +get_gold() list~dict~
+        +set_gold(samples) list~dict~
+    }
+    class Frontend {
+        <<frontend/app.js + index.html>>
+        +renderTrendChart(points) void         %% B-1/B-2：<2点横线+异常高亮
+        +getAutoStatus() void                  %% B-3：1s 倒计时
+        +loadBackendSource() void              %% D-2：显示当前后端来源
+    }
+
+    %% ===== 预设/运行时 JSON（非代码） =====
+    class PresetFile {
+        <<data/vectorizer.local-st.json>>
+        +backend = "embedding"
+        +provider = "local-st"
+        +embedding.api_url = "http://localhost:11434/v1/embeddings"
+        +embedding.model = "nomic-embed-text"
+    }
+    class SignatureStore {
+        <<DATA_DIR/skills_signature.json>>
+        +skill_name: sha256_hex
+    }
+
+    %% ===== 关系 =====
+    EvolveEngine --> SkillSignature : 入口比对签名 / 写账本 / 更新
+    EvolveEngine --> Simbank : 写 heartbeat metric + skill_signature_change
+    EvolveEngine --> Gold : _refresh_changed_gold / bootstrap
+    SkillSignature ..> SignatureStore : 读写
+    AutoLoopController --> FileLock : 运行前获取/占用跳过
+    AutoLoopController --> EvolveEngine : run_protected(run_evolve)
+    Server --> Scorer : probe_ollama / ensure_default_vectorizer
+    Server --> AutoLoopController : lifespan start/stop
+    Scorer ..> PresetFile : 复制为 vectorizer.json
+    Scorer ..> Config : 读 EMBEDDING_PROBE_URL / VECTORIZER_PRESET_ST_PATH
+    Server --> Simbank : 读 trends/ledger
+    Frontend --> Server : GET /api/evolve/trends · /auto/status · /config/vectorizer
+    Frontend ..> Simbank : 趋势点渲染（经端点）
+    Config ..> FileLock : 提供 LOCK_PATH / FILELOCK_TIMEOUT_SEC
+    Config ..> SkillSignature : 提供 SKILLS_SIGNATURE_PATH

@@ -1,0 +1,131 @@
+%% =====================================================================
+%% 时序图 1 · 进化压力源 + heartbeat 闭环（A-1 / A-2 / A-3）
+%% =====================================================================
+sequenceDiagram
+    autonumber
+    participant Loop as 后台周期任务 / 手动触发
+    participant Sig as skill_signature（签名比对）
+    participant E as evolve.run_evolve
+    participant G as gold.get_gold / set_gold
+    participant M as simbank（evolution_ledger + evolution_metrics）
+
+    Loop->>E: run_evolve(trigger)
+    E->>Sig: detect_external_change(USER_SKILLS_DIR, skills_signature.json)
+    Sig->>Sig: compute_signatures() → 比对 saved → changeset(added/removed/changed)
+    alt changeset 非空（外部变化 external_change=True）
+        Sig-->>E: (changeset, True)
+        E->>G: bootstrap_gold(trigger="pressure")  %% added 技能入 gold（幂等）
+        E->>E: _refresh_changed_gold(changed)      %% 更新"已改"技能 gold query
+        E->>M: log_evolution("skill_signature_change", "", "", json(changeset), "pressure", "外部技能集变化")
+    else 无变化
+        Sig-->>E: ({}, False)
+    end
+
+    E->>G: bootstrap_gold(trigger)（常规播种，覆盖缺失项）
+    E->>E: run_schedule_sim → 自动回调 diff；detect_conflicts → 规则沉淀
+    E->>E: _compute_gold_coverage()
+
+    alt coverage < GOLD_COVERAGE_LOW_WATERMARK（A-3）
+        E->>G: bootstrap_gold(trigger="low_watermark")  %% 幂等：仅补缺失
+        Note over E,G: 覆盖度回升；若 seeded>0 则本轮非 no-op
+    end
+
+    Note over E,M: A-2 heartbeat：无论是否 no-op，运行末都写一条 metrics
+    E->>M: log_evolution_metric(gold_coverage, f1_before, f1_after)
+    E->>Sig: save_signatures(current)  %% 更新 DATA_DIR/skills_signature.json
+    E-->>Loop: {ledger_new, no_op, gold_coverage, ...}
+    Note over Loop,M: ledger 业务条目仍仅在确有动作时写（维持防刷屏）；heartbeat 点连续
+
+%% =====================================================================
+%% 时序图 2 · ollama 自动探测 + 后端来源（D-1 / D-2）
+%% =====================================================================
+sequenceDiagram
+    autonumber
+    participant Boot as server.lifespan 启动
+    participant P as scorer.probe_ollama(EMBEDDING_PROBE_URL)
+    participant C as scorer.ensure_default_vectorizer / resolve_backend_source
+    participant Preset as data/vectorizer.local-st.json（预设模板）
+    participant FS as DATA_DIR/vectorizer.json
+    participant U as 前端（校准面板 / 状态区）
+
+    Boot->>P: urllib POST 探测 localhost:11434（timeout=1s）
+    alt 可用
+        P-->>Boot: True → set_ollama_available(True)
+    else 不可用 / 超时
+        P-->>Boot: False → set_ollama_available(False)
+    end
+
+    Boot->>C: ensure_default_vectorizer()
+    alt VECTORIZER_PATH 不存在 且 ollama_available
+        C->>Preset: 读取预设模板
+        C->>FS: 复制为 vectorizer.json（provider=local-st）  %% 不覆盖已存在
+    else VECTORIZER_PATH 不存在 且 ollama 不可用
+        C->>FS: 写 {backend:"local-tfidf"}（回退）
+    else 已存在 vectorizer.json
+        C-->>Boot: 尊重用户已有配置，不动
+    end
+
+    U->>Boot: GET /api/config/vectorizer（或显式 POST /api/config/vectorizer/probe 刷新）
+    Boot->>C: resolve_backend_source()
+    C-->>U: {backend_source, ollama_available, provider, backend}
+    U->>U: 校准面板/状态区显示「当前后端：local-st（ollama 可用）/ local-tfidf（已回退）」
+
+%% =====================================================================
+%% 时序图 3 · 跨进程文件锁（C-2，补充 C-4 超时降级）
+%% =====================================================================
+sequenceDiagram
+    autonumber
+    participant P1 as skillforge 进程1
+    participant P2 as skillforge 进程2
+    participant L as DATA_DIR/.skillforge.lock
+    participant E as evolve.run_evolve
+
+    P1->>P1: auto_loop.run_protected(fn) / run_once(trigger)
+    P1->>L: with FileLock(timeout=FILELOCK_TIMEOUT_SEC): fcntl.flock / msvcrt.locking 排他锁
+    L-->>P1: acquired=True
+    P1->>E: asyncio.to_thread(run_evolve) + 写 skillforge.db
+    P2->>P2: auto_loop.run_protected(fn)
+    P2->>L: 获取排他锁（阻塞至超时）
+    alt 超时仍未获得（C-4）
+        L-->>P2: acquired=False → 返回跳过占位 {skipped:True, reason:"lock occupied"}
+    else 立即获得
+        L-->>P2: acquired=True → 运行
+    end
+    P1->>L: __exit__ 释放锁
+    P1-->>P1: 完成
+
+%% =====================================================================
+%% 时序图 4 · 趋势图异常渲染（B-1 / B-2，前端）
+%% =====================================================================
+sequenceDiagram
+    autonumber
+    participant U as 前端(进化看板)
+    participant S as server GET /api/evolve/trends
+    participant B as 后端 simbank.get_evolution_metrics
+    participant F as 前端 renderTrendChart / _drawTrend
+
+    U->>S: GET /api/evolve/trends?limit=100
+    S->>B: get_evolution_metrics(100)  %% 按 ts ASC（heartbeat 连续点）
+    B-->>S: points[]（连续时间序列）
+    S-->>U: {points}
+    U->>F: renderTrendChart(points)
+
+    alt points.length == 0  %% B-1
+        F-->>U: 空占位文案（维持）
+    else points.length < 2  %% B-1 单点/两点
+        F->>F: 绘制水平参考线（取该点值/基线）
+        F-->>U: 叠加「样本不足，建议运行进化」提示
+    else points.length >= 2
+        loop 相邻点比较（B-2）
+            F->>F: f1_acc_after 降幅 ≥ ANOMALY_F1_DROP(0.1)？
+            F->>F: gold_coverage 下降 ≥ ANOMALY_COV_DROP(5)？
+            alt 命中异常
+                F->>F: 该点用 var(--red) 描点 + <title> 说明原因
+            else 正常
+                F->>F: 常规描点
+            end
+        end
+        F-->>U: 折线 + 异常高亮 + 「存在 N 处异常」图例
+    end
+
+    Note over U: B-3 倒计时：getAutoStatus 取 next_run_in_sec → setInterval(1000) 徽标递减；异常高亮共存
