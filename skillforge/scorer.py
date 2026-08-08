@@ -13,16 +13,21 @@ import json
 import math
 import os
 import re
+import shutil
 import urllib.request
 
 from .config import (
     VECTORIZER_PATH,
     EMBEDDING_API_URL,
+    VECTORIZER_PRESET_ST_PATH,
     CONFLICT_DEFAULT_THRESHOLD,
     CONFLICT_DEFAULT_THRESHOLD_EMBEDDING,
     CONFLICT_AUTO_DEPOSIT_THRESHOLD,
     CONFLICT_AUTO_DEPOSIT_THRESHOLD_EMBEDDING,
 )
+
+# ollama 可用性缓存（D-2）：仅启动/lifespan 与显式刷新探测时更新，不每次 run_evolve 探测
+_ollama_available: bool | None = None
 
 _NORM_RE = re.compile(r"\s+")
 
@@ -316,3 +321,95 @@ def get_vectorizer(backend_name: str | None = None,
             # 自定义 provider 构造函数签名不兼容时回退标准 EmbeddingBackend
             return EmbeddingBackend(api_url=api_url, model=model, api_key_env=api_key_env)
     return LocalTfidfBackend()
+
+
+# --------------------------------------------------------------------------- #
+# ollama 探测 + 默认 vectorizer 落地 + 后端来源解析（D-1 / D-2 · 零依赖 urllib）
+# --------------------------------------------------------------------------- #
+def probe_ollama(url: str, timeout: float = 1.0) -> bool:
+    """对本地 OpenAI 兼容 embeddings 端点做 POST 探测（urllib，短超时）。
+
+    连接/超时/非 embeddings 响应均返回 False；返回含 data 的 embeddings 响应为 True。
+    结果由调用方经 set_ollama_available 缓存，不每次 run_evolve 探测（Q8）。
+    """
+    try:
+        payload = {"input": "ping", "model": "nomic-embed-text"}
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        return bool(data.get("data"))
+    except Exception:
+        return False
+
+
+def set_ollama_available(flag: bool | None) -> None:
+    """缓存 ollama 可用性探测结果（D-2）。"""
+    global _ollama_available
+    _ollama_available = flag
+
+
+def get_ollama_available() -> bool | None:
+    """读取 ollama 可用性缓存（D-2）；未探测过为 None。"""
+    return _ollama_available
+
+
+def ensure_default_vectorizer() -> dict:
+    """确保 DATA_DIR/vectorizer.json 存在（D-1 / D-2 开箱即用）。
+
+    - 已存在：尊重用户已有配置，不动，直接返回其解析。
+    - 不存在且 ollama 可用：复制 VECTORIZER_PRESET_ST_PATH 预设（provider=local-st）。
+    - 不存在且 ollama 不可用：写 {backend:"local-tfidf"} 回退。
+    """
+    if VECTORIZER_PATH.exists():
+        return _load_vectorizer_config()
+    if _ollama_available:
+        src = VECTORIZER_PRESET_ST_PATH
+        if src.exists():
+            try:
+                shutil.copy(str(src), str(VECTORIZER_PATH))
+                return _load_vectorizer_config()
+            except Exception:
+                pass
+    # 回退 local-tfidf（零依赖可运行）
+    cfg = {
+        "backend": "local-tfidf",
+        "provider": "local-tfidf",
+        "embedding": {
+            "api_url": "",
+            "api_key_env": "EMBEDDING_API_KEY",
+            "model": "text-embedding-3-small",
+        },
+    }
+    VECTORIZER_PATH.write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return cfg
+
+
+def resolve_backend_source() -> dict:
+    """解析当前后端来源（D-2）：backend_source(local-st/openai/local-tfidf) + ollama_available。
+
+    实际后端为 EmbeddingBackend 时，provider==local-st → "local-st"，否则 "openai"；
+    否则 "local-tfidf"。
+    """
+    cfg = _load_vectorizer_config()
+    provider = cfg.get("provider")
+    if provider is None:
+        provider = "openai" if cfg.get("backend") == "embedding" else "local-tfidf"
+    if provider == "local-st":
+        backend_source = "local-st"
+    elif cfg.get("backend") == "embedding":
+        backend_source = "openai"
+    else:
+        backend_source = "local-tfidf"
+    return {
+        "backend_source": backend_source,
+        "ollama_available": _ollama_available,
+        "provider": provider,
+        "backend": cfg.get("backend", "local-tfidf"),
+    }

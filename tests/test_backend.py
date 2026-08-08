@@ -1,5 +1,9 @@
 """A-1 / A-2 / A-3 / A-4：多 provider 后端注册、阈值分档、校准门控泛化、插件式注册。"""
+import pytest
+
 from skillforge import scorer
+
+pytestmark = pytest.mark.d
 
 
 def test_provider_local_st_returns_embedding_backend(skillforge_env):

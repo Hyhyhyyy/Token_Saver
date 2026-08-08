@@ -1,7 +1,11 @@
-"""C-2：ledger action_type/since/until 过滤；GET/PUT /api/config/vectorizer 返回/接受 provider。"""
+"""C-2 / D-2：ledger 过滤；GET/PUT /api/config/vectorizer 返回/接受 provider + backend_source。"""
+import pytest
+
 from fastapi.testclient import TestClient
 
 from skillforge import evolve, server
+
+pytestmark = pytest.mark.d
 
 
 def test_ledger_filter_by_action_type(skillforge_env):
@@ -33,6 +37,9 @@ def test_config_vectorizer_returns_provider(skillforge_env):
     body = r.json()
     assert body["provider"] == "local-st"
     assert body["backend"] == "embedding"
+    # D-2：新增 backend_source + ollama_available
+    assert body["backend_source"] == "local-st"
+    assert "ollama_available" in body
 
     # PUT 持久化 provider
     r2 = client.put(

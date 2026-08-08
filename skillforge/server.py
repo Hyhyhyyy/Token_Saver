@@ -20,6 +20,13 @@ from .spec import STANDARD_VERSION, SKILL_TEMPLATE, DESC_TEMPLATE, DESC_EXAMPLE,
 from . import config
 from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve, auto_loop
 from .scorer import get_vectorizer, _load_vectorizer_config, conflict_default_threshold
+from .scorer import (
+    resolve_backend_source,
+    get_ollama_available,
+    set_ollama_available,
+    ensure_default_vectorizer,
+    probe_ollama,
+)
 import json
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -32,7 +39,18 @@ async def lifespan(app: FastAPI):
       自动回调），其内部逻辑经 auto_loop.run_protected 进入（互斥锁保护）。
     - AUTO_EVOLVE_LOOP=true：启动进程内后台周期自动循环（默认 false，绝不静默写盘）。
     任何异常吞掉仅记录，绝不影响应用就绪；两个开关默认均 false。
+
+    D-2：启动时探测 ollama 可用性并据预设落地 DATA_DIR/vectorizer.json（开箱即用），
+    结果缓存于 scorer 模块级变量，仅启动/lifespan 探测一次（Q8）。
     """
+    # D-2：启动探测 ollama 可用性 + 落地默认 vectorizer.json（开箱即用）
+    try:
+        ok = probe_ollama(config.EMBEDDING_PROBE_URL)
+        set_ollama_available(ok)
+        ensure_default_vectorizer()
+    except Exception as e:  # noqa: BLE001
+        print(f"[evolve] ollama 探测/落地 vectorizer 异常（已吞掉）：{e}")
+
     if config.auto_evolve_on_start():
         try:
             def _boot_sequence():
@@ -322,15 +340,33 @@ def get_vectorizer_config():
     provider = cfg.get("provider")
     if provider is None:
         provider = "openai" if cfg.get("backend") == "embedding" else "local-tfidf"
+    src = resolve_backend_source()
     return {
         "backend": name,
         "provider": provider,
+        "backend_source": src["backend_source"],
+        "ollama_available": src["ollama_available"],
         "embedding": {
             "api_url": emb.get("api_url", ""),
             "api_key_env": emb.get("api_key_env", "EMBEDDING_API_KEY"),
             "model": emb.get("model", "text-embedding-3-small"),
         },
     }
+
+
+@app.post("/api/config/vectorizer/probe")
+def post_probe_vectorizer():
+    """显式刷新 ollama 探测 + 落地默认 vectorizer.json + 返回当前后端来源（Q8）。
+
+    不每次 run_evolve 探测，仅在启动/lifespan 与「显式刷新」时重新探测并缓存。
+    """
+    try:
+        ok = probe_ollama(config.EMBEDDING_PROBE_URL)
+        set_ollama_available(ok)
+        ensure_default_vectorizer()
+        return resolve_backend_source()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"vectorizer 探测失败：{e}")
 
 
 @app.put("/api/config/vectorizer")

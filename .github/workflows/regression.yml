@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        direction: [backend, evolve, auto_loop, trends, endpoints]
+        direction: [a, b, c, d]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,5 +21,5 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest httpx
-      - name: Run regression
-        run: python -m pytest tests/ -q
+      - name: Run regression (direction ${{ matrix.direction }})
+        run: python -m pytest tests/ -q -m ${{ matrix.direction }}

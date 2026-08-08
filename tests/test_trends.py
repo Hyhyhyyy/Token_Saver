@@ -1,7 +1,11 @@
-"""C-1：evolution_metrics 表写入 + GET /api/evolve/trends 升序 + 空数据。"""
+"""C-1 / B-2：evolution_metrics 表写入 + GET /api/evolve/trends 升序 + 空数据。"""
+import pytest
+
 from fastapi.testclient import TestClient
 
 from skillforge import evolve, server, simbank
+
+pytestmark = pytest.mark.b
 
 
 def test_metrics_empty_initially(skillforge_env):

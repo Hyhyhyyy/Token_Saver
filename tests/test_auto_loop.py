@@ -1,15 +1,23 @@
-"""B-1 / B-2：后台周期自动循环 start/stop/status、互斥锁（并发仅一个执行）、run_once 写盘。"""
+"""B-1 / B-2 / C-1 / C-2：后台周期自动循环 start/stop/status、互斥锁、run_once 写盘、文件锁。"""
 import asyncio
+
+import pytest
 
 from skillforge import auto_loop
 
+pytestmark = pytest.mark.c
+
 
 def test_auto_loop_start_stop_status(skillforge_env):
-    assert auto_loop.status()["running"] is False
-    auto_loop.start()
-    assert auto_loop.status()["running"] is True
-    auto_loop.stop()
-    assert auto_loop.status()["running"] is False
+    # C-1：start() 改为 asyncio.get_running_loop().create_task，需在运行中的事件循环内调用
+    async def go():
+        assert auto_loop.status()["running"] is False
+        auto_loop.start()
+        assert auto_loop.status()["running"] is True
+        auto_loop.stop()
+        assert auto_loop.status()["running"] is False
+
+    asyncio.run(go())
 
 
 def test_run_once_writes_auto_loop_trigger(skillforge_env):

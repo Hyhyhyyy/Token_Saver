@@ -112,8 +112,14 @@
       <div class="kpi-row" id="evolveKpiRow"></div>
 
       <div class="row" style="align-items:center;justify-content:space-between">
-        <div id="autoStatus" class="auto-badge off">○ 自动进化：暂停</div>
-        <button class="btn secondary" id="evolveAutoBtn">⚙ 自动进化：开</button>
+        <div class="row" style="margin-top:0;gap:10px;flex-wrap:wrap">
+          <div id="autoStatus" class="auto-badge off">○ 自动进化：暂停</div>
+          <span id="backendSource" class="backend-source">当前后端：检测中…</span>
+        </div>
+        <div class="row" style="margin-top:0">
+          <button class="btn secondary" id="evolveAutoBtn">⚙ 自动进化：开</button>
+          <button class="btn secondary" id="backendProbeBtn">🔄 刷新后端探测</button>
+        </div>
       </div>
 
       <div class="card trend-chart">
@@ -137,6 +143,7 @@
             <option value="conflict_rule_deposit">conflict_rule_deposit</option>
             <option value="budget_manual_override">budget_manual_override</option>
             <option value="calibration">calibration</option>
+            <option value="skill_signature_change">skill_signature_change</option>
           </select>
           <select id="ledgerWindow" style="margin-left:8px">
             <option value="">全部时间</option>

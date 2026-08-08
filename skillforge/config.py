@@ -101,6 +101,29 @@ CALIBRATION_SAMPLE_PAIRS = 30
 # F1 回归技能的「规则自动沉淀」开关（P1，默认关闭，避免噪声规则）
 EVOLVE_AUTO_DEPOSIT_F1_RULE = False
 
+# ---- v2.3 增量配置（A-1 / A-2 / A-3 / B-2 / C-2 / C-4 / D-1 / D-2）----
+# 全部读环境变量、带默认值；保持与 arch §7.1 命名一致。
+
+# A-3 低水位：gold 覆盖度 < 此值则 run_evolve 主动再播种（自愈停滞）
+GOLD_COVERAGE_LOW_WATERMARK = float(os.environ.get("GOLD_COVERAGE_LOW_WATERMARK", "80"))
+
+# B-2 趋势图异常高亮阈值
+ANOMALY_F1_DROP = float(os.environ.get("ANOMALY_F1_DROP", "0.1"))   # f1_acc_after 降幅
+ANOMALY_COV_DROP = float(os.environ.get("ANOMALY_COV_DROP", "5"))    # gold_coverage 下降百分点
+
+# C-2 / C-4 跨进程文件锁（仅包裹 run_evolve 整体）
+FILELOCK_TIMEOUT_SEC = float(os.environ.get("FILELOCK_TIMEOUT_SEC", "5"))
+LOCK_PATH = DATA_DIR / ".skillforge.lock"
+
+# A-1 技能内容签名存储（sha256 映射）
+SKILLS_SIGNATURE_PATH = DATA_DIR / "skills_signature.json"
+
+# D-1 本地后端预设模板（仓库内置，首次启动复制为 DATA_DIR/vectorizer.json）
+VECTORIZER_PRESET_ST_PATH = Path(__file__).resolve().parent.parent / "data" / "vectorizer.local-st.json"
+
+# D-2 ollama 探测端点（默认同 EMBEDDING_API_URL）
+EMBEDDING_PROBE_URL = os.environ.get("EMBEDDING_PROBE_URL", EMBEDDING_API_URL)
+
 
 def auto_evolve_on_start() -> bool:
     """开机自启开关：读取 AUTO_EVOLVE_ON_START 环境变量（默认 false）。

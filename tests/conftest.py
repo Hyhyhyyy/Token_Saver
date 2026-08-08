@@ -107,6 +107,8 @@ def _reset_skillforge():
     import skillforge.evolve  # noqa: F401
     import skillforge.auto_loop  # noqa: F401
     import skillforge.server  # noqa: F401
+    import skillforge.skill_signature  # noqa: F401
+    import skillforge.filelock  # noqa: F401
     return skillforge
 
 
@@ -126,7 +128,8 @@ def _rebind_test_modules(request):
         return
     import skillforge as _pkg
     for attr in ("evolve", "server", "simbank", "scorer", "auto_loop",
-                 "gold", "budget", "custom_rules", "simulator", "config"):
+                 "gold", "budget", "custom_rules", "simulator", "config",
+                 "skill_signature", "filelock"):
         sub = getattr(_pkg, attr, None)
         if sub is not None:
             setattr(mod, attr, sub)

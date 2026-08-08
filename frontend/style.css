@@ -281,6 +281,22 @@ body::after {
 .trend-dot.before { fill: var(--amber); }
 .trend-empty { color: var(--muted); font-size: 12px; padding: 18px 12px; text-align: center; }
 
+/* 进化看板 · 趋势图增强（B-1 水平参考线 / B-2 异常高亮 / 样本不足提示） */
+.trend-ref-line { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: 0.7; }
+.trend-anomaly { fill: var(--red); filter: drop-shadow(0 0 5px rgba(255, 107, 107, 0.7)); }
+.trend-anomaly.trend-line-f1.after,
+.trend-anomaly.trend-line-f1.before { stroke: var(--red); }
+.trend-insufficient { fill: var(--amber); font-size: 10px; font-family: var(--mono); }
+text.trend-anomaly { fill: var(--red); font-size: 10px; font-family: var(--mono); font-weight: 700; }
+
+/* 进化看板 · 后端来源标签（D-2） */
+.backend-source {
+  font-size: 12px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); display: inline-flex; align-items: center; gap: 6px;
+}
+.backend-source.active { color: var(--green); border-color: rgba(94, 224, 138, 0.4); background: var(--green-soft); }
+.backend-source.fallback { color: var(--amber); border-color: rgba(245, 185, 66, 0.4); background: var(--amber-soft); }
+
 /* 进化看板 · 自动进化徽标 + 开关 */
 .auto-badge {
   font-size: 12px; padding: 6px 14px; border-radius: 999px;

@@ -17,6 +17,7 @@ import statistics
 from datetime import datetime, timezone
 
 from . import config, gold, budget, custom_rules, simulator, simbank
+from . import skill_signature
 from .skill_parser import scan_skills
 from .scorer import (
     get_vectorizer,
@@ -193,6 +194,19 @@ def run_evolve(seed_threshold: int | None = None,
     """
     run_start = _now()
 
+    # A-1 入口：检测外部技能集签名变化（增/删/改）。存在历史基线且 changeset 非空 →
+    # 视为外部变化，触发再播种 + 写 skill_signature_change 账本（维持防刷屏：不刷屏）。
+    changeset, external_change = skill_signature.detect_external_change()
+    if external_change:
+        # added 技能自然已在磁盘，常规 bootstrap 会播种；此处显式再确保（幂等）。
+        bootstrap_gold(trigger="pressure")
+        _refresh_changed_gold(changeset.get("changed", []))
+        simbank.log_evolution(
+            "skill_signature_change", "", "",
+            json.dumps(changeset, ensure_ascii=False),
+            "pressure", "外部技能集变化",
+        )
+
     # ① 自动播种真实技能 gold（覆盖率自门：仅补 USER_SKILLS_DIR 中缺失项，OBS-1 修复）。
     # bootstrap_gold 现在自判断是否需要播种，无需调用方再按阈值预筛。
     # seed_threshold 仅保留接口兼容，此处不再用于门控。
@@ -240,14 +254,29 @@ def run_evolve(seed_threshold: int | None = None,
     # ⑤ 计算 gold 覆盖度（C-1）：已装用户技能被 gold 覆盖的百分比
     gold_coverage = _compute_gold_coverage()
 
-    # B-3 no-op 判定：gold 已全覆盖且本轮无新增回归/冲突 → 跳过写 ledger/metrics
-    is_no_op = (gold_seeded == 0 and not auto_recalled_entries and not deposited_rules)
-    if not is_no_op:
-        simbank.log_evolution_metric(
-            gold_coverage,
-            schedule_result["accuracy_before"],
-            schedule_result["accuracy_after"],
-        )
+    # A-3 低水位再播种：覆盖度跌破阈值则主动再 bootstrap（幂等，仅补缺失，自愈停滞）
+    if gold_coverage < config.GOLD_COVERAGE_LOW_WATERMARK:
+        lw = bootstrap_gold(trigger="low_watermark")
+        gold_seeded += lw["seeded"]
+
+    # B-3 no-op 判定：仅当有实际业务动作（gold_seeded/auto_recalled/deposited_rules/
+    # external_change）时为 False；维持 ledger 不刷屏语义。
+    is_no_op = (
+        gold_seeded == 0
+        and not auto_recalled_entries
+        and not deposited_rules
+        and not external_change
+    )
+
+    # A-2 heartbeat：无论是否 no-op，运行末都写一行 evolution_metrics（连续时间序列）
+    simbank.log_evolution_metric(
+        gold_coverage,
+        schedule_result["accuracy_before"],
+        schedule_result["accuracy_after"],
+    )
+
+    # A-1 退出前更新技能内容签名（建立/刷新基线，供下轮比对外部变化）
+    skill_signature.save_signatures(skill_signature.compute_signatures())
 
     return {
         "gold": {"seeded": gold_seeded, "total": len(gold.get_gold())},
@@ -268,6 +297,32 @@ def run_evolve(seed_threshold: int | None = None,
         "gold_coverage": gold_coverage,
         "ran_at": run_start,
     }
+
+
+def _refresh_changed_gold(changed_names: list[str]) -> int:
+    """A-1：对「已改(changed)」技能重算 heuristic query 并更新其 gold 样本。
+
+    经 gold.get_gold()/set_gold() 原地更新该技能 gold 样本（同 id 覆盖，不新增条目），
+    保持幂等、不改 gold.py 接口（X1 假设）。返回实际更新的样本数。
+    """
+    if not changed_names:
+        return 0
+    installed = {s["name"]: s for s in scan_skills(dirs=[config.USER_SKILLS_DIR])}
+    samples = gold.get_gold()
+    by_skill = {g["skill_id"]: g for g in samples}
+    updated = 0
+    for name in changed_names:
+        s = installed.get(name)
+        g = by_skill.get(name)
+        if s is None or g is None:
+            continue
+        new_query = _heuristic_query(s) or name
+        if g.get("query") != new_query:
+            g["query"] = new_query
+            updated += 1
+    if updated:
+        gold.set_gold(samples)
+    return updated
 
 
 def _compute_gold_coverage() -> float:

@@ -1,0 +1,9 @@
+{
+  "backend": "embedding",
+  "provider": "local-st",
+  "embedding": {
+    "api_url": "http://localhost:11434/v1/embeddings",
+    "api_key_env": "EMBEDDING_API_KEY",
+    "model": "nomic-embed-text"
+  }
+}

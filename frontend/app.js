@@ -540,6 +540,11 @@ function showView(name) {
     $(btn).classList.toggle("active", n === name);
     $(view).classList.toggle("hidden", n !== name);
   }
+  // B-3：离开进化视图时清理倒计时 interval，避免泄漏
+  if (name !== "evolve" && _autoTimer) {
+    clearInterval(_autoTimer);
+    _autoTimer = null;
+  }
   if (name === "sim") renderSim();
   if (name === "conflicts") renderConflicts();
   if (name === "dashboard") renderDashboard();
@@ -562,12 +567,13 @@ function switchTab(name) {
   if (name === "track") renderTrack();
 }
 
-/* ---------- 进化看板（v2.1 + v2.2 · 自主进化引擎 + 进化账本 + 趋势 + 自动循环） ---------- */
+/* ---------- 进化看板（v2.1 + v2.2 + v2.3 · 自主进化引擎 + 进化账本 + 趋势 + 自动循环） ---------- */
 function renderEvolve() {
   bindEvolveNav();
   loadLedger();
   loadTrends();
   getAutoStatus();
+  loadBackendSource();
 }
 
 function bindEvolveNav() {
@@ -576,9 +582,41 @@ function bindEvolveNav() {
   $("#evolveReportBtn").onclick = exportReport;
   $("#evolveCalibrateBtn").onclick = loadCalibration;
   $("#evolveAutoBtn").onclick = toggleAutoEvolve;
+  $("#backendProbeBtn").onclick = probeBackend;
   $("#ledgerLimit").onchange = loadLedger;
   $("#ledgerType").onchange = loadLedger;
   $("#ledgerWindow").onchange = loadLedger;
+}
+
+/* D-2 后端来源显示：读 GET /api/config/vectorizer 的 backend_source / ollama_available */
+async function loadBackendSource() {
+  try {
+    const cfg = await api("/api/config/vectorizer");
+    const el = $("#backendSource");
+    if (!el) return;
+    const src = cfg.backend_source;
+    let label;
+    if (src === "local-st") {
+      label = `当前后端：local-st（ollama ${cfg.ollama_available ? "可用" : "未探测到"}）`;
+    } else if (src === "openai") {
+      label = "当前后端：openai";
+    } else {
+      label = "当前后端：local-tfidf（已回退）";
+    }
+    el.textContent = label;
+    el.className = "backend-source " + (src === "local-tfidf" ? "fallback" : "active");
+  } catch (e) { /* 静默：端点可能暂不可用 */ }
+}
+
+/* D-2 显式刷新：POST /api/config/vectorizer/probe 重新探测并刷新来源显示 */
+async function probeBackend() {
+  try {
+    await api("/api/config/vectorizer/probe", { method: "POST" });
+    await loadBackendSource();
+    toast("已重新探测后端可用性");
+  } catch (e) {
+    toast("探测失败：" + e.message);
+  }
 }
 
 async function loadLedger() {
@@ -601,7 +639,7 @@ async function loadLedger() {
     const badgeClass = {
       gold_seed: "valid", budget_auto_recall: "warning",
       budget_manual_override: "warning", conflict_rule_deposit: "invalid",
-      calibration: "info",
+      calibration: "info", skill_signature_change: "info",
     };
     const rows = r.entries.map((e) => {
       const cls = badgeClass[e.action_type] || "info";
@@ -712,7 +750,12 @@ async function loadTrends() {
 }
 
 /* 手写 SVG 折线渲染：gold 覆盖度（0~100%）+ F1 前(虚)/后(实)。
-   空数据占位；每个数据点带 <title> hover tooltip（C-4）。沿用 .trend-svg 视觉。 */
+   空数据占位；每个数据点带 <title> hover tooltip（C-4）。沿用 .trend-svg 视觉。
+   B-1：单点/两点画水平参考线 +「样本不足」提示；B-2：相邻点异常高亮 + 「存在 N 处异常」。 */
+// 异常阈值（B-2，与后端 config.ANOMALY_F1_DROP / ANOMALY_COV_DROP 对齐，前端可微调）
+const ANOMALY_F1_DROP = 0.1;   // f1_acc_after 降幅
+const ANOMALY_COV_DROP = 5;    // gold_coverage 下降百分点
+
 function renderTrendChart(points) {
   const emptyGold = `<div class="trend-empty">暂无趋势数据，运行「▶ 运行自主进化」后此处显示 Gold 覆盖度趋势。</div>`;
   const emptyF1 = `<div class="trend-empty">暂无趋势数据。</div>`;
@@ -739,10 +782,25 @@ function _drawTrend(sel, points, opt) {
   const W = 560, H = 170, padL = 42, padR = 14, padT = 14, padB = 28;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const n = points.length;
-  const xAt = (i) => padL + (n === 1 ? innerW / 2 : innerW * i / (n - 1));
+  const xAt = (i) => padL + (n <= 1 ? 0 : innerW * i / (n - 1));
   const yAt = (v) => padT + innerH * (1 - (v - opt.minY) / ((opt.maxY - opt.minY) || 1));
   const mkPath = (vals) =>
     vals.map((v, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ");
+
+  // B-1：单点（<2）画水平参考线 +「样本不足」提示（==0 已在 renderTrendChart 处理为空占位）
+  if (n < 2) {
+    const v = (n === 1)
+      ? (opt.dual ? opt.after(points[0]) : opt.value(points[0]))
+      : (opt.minY + opt.maxY) / 2;
+    const y = yAt(v);
+    $(sel).innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="xMidYMid meet">
+      <line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="trend-ref-line"/>
+      <circle cx="${padL}" cy="${y.toFixed(1)}" r="3" class="trend-dot gold"><title>${esc(points[0]?.ts || "")} · ${esc(opt.label)}: ${opt.yFmt(v)}</title></circle>
+      <text x="${padL}" y="${(padT + 12).toFixed(1)}" class="trend-insufficient">样本不足，建议运行进化</text>
+      <text x="${padL}" y="${H - 6}" class="trend-axis">${esc(opt.label)}</text>
+    </svg>`;
+    return;
+  }
 
   let grid = "";
   for (let k = 0; k <= 4; k++) {
@@ -752,6 +810,23 @@ function _drawTrend(sel, points, opt) {
     grid += `<text x="${padL - 6}" y="${(yy + 3).toFixed(1)}" class="trend-axis" text-anchor="end">${opt.yFmt(val)}</text>`;
   }
 
+  // B-2：相邻点异常比较（gold 覆盖度下降 / F1 后选对率暴跌）
+  const anomalies = [];
+  for (let i = 1; i < n; i++) {
+    if (opt.dual) {
+      const prev = opt.after(points[i - 1]), cur = opt.after(points[i]);
+      if (prev - cur >= ANOMALY_F1_DROP) {
+        anomalies.push({ i, reason: `F1 后选对率下降 ${((prev - cur) * 100).toFixed(1)}pt` });
+      }
+    } else {
+      const prev = opt.value(points[i - 1]), cur = opt.value(points[i]);
+      if (prev - cur >= ANOMALY_COV_DROP) {
+        anomalies.push({ i, reason: `覆盖度下降 ${(prev - cur).toFixed(1)}pt` });
+      }
+    }
+  }
+  const isAnomAt = (i) => anomalies.find((a) => a.i === i);
+
   let lines = "", dots = "";
   if (opt.dual) {
     const bv = points.map((p) => opt.before(p));
@@ -759,37 +834,71 @@ function _drawTrend(sel, points, opt) {
     lines += `<path d="${mkPath(bv)}" class="${opt.clsBefore}" />`;
     lines += `<path d="${mkPath(av)}" class="${opt.clsAfter}" />`;
     points.forEach((p, i) => {
-      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(av[i]).toFixed(1)}" r="3" class="trend-dot after"><title>${esc(p.ts)} · 后: ${opt.yFmt(av[i])}</title></circle>`;
-      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(bv[i]).toFixed(1)}" r="3" class="trend-dot before"><title>${esc(p.ts)} · 前: ${opt.yFmt(bv[i])}</title></circle>`;
+      const ab = isAnomAt(i);
+      const clsB = ab ? "trend-dot before trend-anomaly" : "trend-dot before";
+      const clsA = ab ? "trend-dot after trend-anomaly" : "trend-dot after";
+      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(av[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${clsA}"><title>${esc(p.ts)} · 后: ${opt.yFmt(av[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
+      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(bv[i]).toFixed(1)}" r="3" class="${clsB}"><title>${esc(p.ts)} · 前: ${opt.yFmt(bv[i])}</title></circle>`;
     });
   } else {
     const vv = points.map((p) => opt.value(p));
     lines += `<path d="${mkPath(vv)}" class="${opt.cls}" />`;
     points.forEach((p, i) => {
-      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(vv[i]).toFixed(1)}" r="3" class="trend-dot gold"><title>${esc(p.ts)} · ${opt.label}: ${opt.yFmt(vv[i])}</title></circle>`;
+      const ab = isAnomAt(i);
+      const cls = ab ? "trend-dot gold trend-anomaly" : "trend-dot gold";
+      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(vv[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${cls}"><title>${esc(p.ts)} · ${esc(opt.label)}: ${opt.yFmt(vv[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
     });
   }
 
+  // B-2 图例：存在 N 处异常
+  const legend = anomalies.length
+    ? `<text x="${W - padR}" y="${(padT + 12).toFixed(1)}" text-anchor="end" class="trend-anomaly">存在 ${anomalies.length} 处异常</text>`
+    : "";
+
   $(sel).innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="xMidYMid meet">
-    ${grid}${lines}${dots}
+    ${grid}${lines}${dots}${legend}
     <text x="${padL}" y="${H - 6}" class="trend-axis">${esc(opt.label)}</text>
   </svg>`;
 }
 
-/* ---------- 自动循环状态（B-2） ---------- */
+/* ---------- 自动循环状态（B-2 / B-3 · 实时倒计时） ---------- */
+let _autoTimer = null;       // setInterval 句柄（切换视图时清理）
+let _autoNextSec = null;     // 下次运行剩余秒数
+
+function _fmtCountdown(sec) {
+  if (sec == null) return "";
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function _tickAutoStatus() {
+  const badge = $("#autoStatus");
+  if (!badge) return;
+  if (_autoNextSec == null || !badge.classList.contains("on")) return;
+  _autoNextSec = Math.max(0, _autoNextSec - 1);
+  const last = badge.dataset.last || "";
+  badge.textContent = `● 自动进化：运行中${last} · 下次运行 ${_fmtCountdown(_autoNextSec)}`;
+}
+
 async function getAutoStatus() {
+  // B-3：清理旧 timer（切换视图/重复调用），避免泄漏
+  if (_autoTimer) { clearInterval(_autoTimer); _autoTimer = null; }
   try {
     const s = await api("/api/evolve/auto/status");
     const badge = $("#autoStatus");
     if (s.running) {
       badge.className = "auto-badge on";
-      const next = s.next_run_in_sec != null ? ` · 下次 ~${Math.ceil(s.next_run_in_sec / 60)} 分后` : "";
+      _autoNextSec = (s.next_run_in_sec != null) ? s.next_run_in_sec : null;
+      const next = _autoNextSec != null ? ` · 下次运行 ${_fmtCountdown(_autoNextSec)}` : "";
       const last = s.last_run ? ` · 上次 ${s.last_run.slice(0, 19).replace("T", " ")}` : "";
+      badge.dataset.last = last;
       badge.textContent = `● 自动进化：运行中${last}${next}`;
       $("#evolveAutoBtn").textContent = "⚙ 自动进化：关";
+      _autoTimer = setInterval(_tickAutoStatus, 1000);
     } else {
       badge.className = "auto-badge off";
       badge.textContent = "○ 自动进化：暂停";
+      _autoNextSec = null;
       $("#evolveAutoBtn").textContent = "⚙ 自动进化：开";
     }
   } catch (e) { /* 静默：端点可能暂不可用 */ }

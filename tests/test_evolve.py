@@ -1,5 +1,9 @@
 """编排 + B-3 no-op 判定 + 冲突自动沉淀。"""
+import pytest
+
 from skillforge import evolve
+
+pytestmark = pytest.mark.a
 
 
 def test_run_evolve_seeds_and_returns(skillforge_env):
