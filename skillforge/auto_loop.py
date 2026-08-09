@@ -73,7 +73,7 @@ async def _with_filelock(fn) -> dict:
     fl = FileLock(config.LOCK_PATH, timeout=config.FILELOCK_TIMEOUT_SEC)
     with fl:
         if not fl.acquired:
-            logger.info("跨进程锁被占用，跳过本次 run_evolve")
+            logger.warning("跨进程锁获取超时，将安全跳过本轮")
             return {"ledger_new": [], "no_op": True, "skipped": True,
                     "reason": "cross-process lock occupied"}
         _state["last_run"] = datetime.now(timezone.utc).isoformat()

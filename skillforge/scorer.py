@@ -25,6 +25,7 @@ from .config import (
     CONFLICT_AUTO_DEPOSIT_THRESHOLD,
     CONFLICT_AUTO_DEPOSIT_THRESHOLD_EMBEDDING,
 )
+from . import config  # 访问 config.EMBEDDING_CANDIDATE_URLS（D-3 多候选）
 
 # ollama 可用性缓存（D-2）：仅启动/lifespan 与显式刷新探测时更新，不每次 run_evolve 探测
 _ollama_available: bool | None = None
@@ -327,7 +328,7 @@ def get_vectorizer(backend_name: str | None = None,
 # ollama 探测 + 默认 vectorizer 落地 + 后端来源解析（D-1 / D-2 · 零依赖 urllib）
 # --------------------------------------------------------------------------- #
 def probe_ollama(url: str, timeout: float = 1.0) -> bool:
-    """对本地 OpenAI 兼容 embeddings 端点做 POST 探测（urllib，短超时）。
+    """对单个本地 OpenAI 兼容 embeddings 端点做 POST 探测（urllib，短超时）。
 
     连接/超时/非 embeddings 响应均返回 False；返回含 data 的 embeddings 响应为 True。
     结果由调用方经 set_ollama_available 缓存，不每次 run_evolve 探测（Q8）。
@@ -347,6 +348,17 @@ def probe_ollama(url: str, timeout: float = 1.0) -> bool:
         return False
 
 
+def probe_candidates(urls: list[str], timeout: float = 1.0) -> str | None:
+    """按序探测候选 embeddings 端点（D-3），返回首个可用 url；全不可达返回 None。
+
+    沿用 probe_ollama 单 url 探测逻辑；短路返回首个返回 True 的候选（D-3 多本地后端）。
+    """
+    for url in urls or []:
+        if probe_ollama(url, timeout=timeout):
+            return url
+    return None
+
+
 def set_ollama_available(flag: bool | None) -> None:
     """缓存 ollama 可用性探测结果（D-2）。"""
     global _ollama_available
@@ -358,20 +370,47 @@ def get_ollama_available() -> bool | None:
     return _ollama_available
 
 
-def ensure_default_vectorizer() -> dict:
-    """确保 DATA_DIR/vectorizer.json 存在（D-1 / D-2 开箱即用）。
+def ensure_default_vectorizer(candidate_url: str | None = None) -> dict:
+    """确保 DATA_DIR/vectorizer.json 存在（D-1 / D-2 / D-3 开箱即用）。
 
     - 已存在：尊重用户已有配置，不动，直接返回其解析。
-    - 不存在且 ollama 可用：复制 VECTORIZER_PRESET_ST_PATH 预设（provider=local-st）。
+    - 不存在且 (candidate_url 可用 或 ollama 可用)：复制 VECTORIZER_PRESET_ST_PATH
+      预设（provider=local-st）；若胜出端点与预设 api_url 不同，落地时把 api_url
+      重写为胜出端点（U3：胜出候选非 ollama 时指向探测到的端点）。
     - 不存在且 ollama 不可用：写 {backend:"local-tfidf"} 回退。
+    - R-2：当 VECTORIZER_PATH 不存在、candidate_url 未传、且 _ollama_available is None
+      （独立调用路径）时，先 probe_candidates 探测并设置缓存再分支，不再静默回退。
+
+    candidate_url 默认 None（向后兼容既有调用）；传入时优先作为胜出端点。
     """
     if VECTORIZER_PATH.exists():
         return _load_vectorizer_config()
-    if _ollama_available:
+
+    # R-2：独立调用路径（_ollama_available is None）且未传候选 → 先探测并设置缓存
+    if _ollama_available is None and candidate_url is None:
+        winner = probe_candidates(config.EMBEDDING_CANDIDATE_URLS)
+        set_ollama_available(bool(winner))
+
+    if _ollama_available or candidate_url:
         src = VECTORIZER_PRESET_ST_PATH
         if src.exists():
             try:
                 shutil.copy(str(src), str(VECTORIZER_PATH))
+                # U3：若胜出端点不同于预设 api_url，落地时重写 api_url 指向探测到的端点
+                winner = candidate_url or (
+                    config.EMBEDDING_CANDIDATE_URLS[0]
+                    if _ollama_available and config.EMBEDDING_CANDIDATE_URLS
+                    else None
+                )
+                if winner:
+                    cfg = _load_vectorizer_config()
+                    preset_api = (cfg.get("embedding", {}) or {}).get("api_url", "")
+                    if winner != preset_api:
+                        cfg.setdefault("embedding", {})["api_url"] = winner
+                        VECTORIZER_PATH.write_text(
+                            json.dumps(cfg, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
                 return _load_vectorizer_config()
             except Exception:
                 pass

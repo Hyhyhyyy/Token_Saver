@@ -21,9 +21,63 @@
       <button id="nav-conflicts" class="nav-btn">冲突检测</button>
       <button id="nav-dashboard" class="nav-btn">数据看板</button>
       <button id="nav-evolve" class="nav-btn">进化</button>
+      <button id="nav-help" class="nav-btn help-btn" type="button" title="使用说明">❓ 使用说明</button>
     </nav>
     <div class="meta" id="meta">加载中…</div>
   </header>
+
+  <!-- 使用说明模态（零构建，P0 · 首次自动弹，可关闭，localStorage 持久化） -->
+  <div id="onboardingModal" class="onboarding-modal hidden">
+    <div class="onboarding-overlay" data-close></div>
+    <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+      <button class="onboarding-close" type="button" data-close aria-label="关闭">×</button>
+      <h2 id="onboardingTitle">SkillForge · 个性化 Skill 资产优化工作台</h2>
+      <div class="onboarding-body">
+        <section>
+          <h4>① 本工具做什么（四大能力）</h4>
+          <ul>
+            <li><b>格式校验</b>：检查 SKILL.md 结构 / 字段规范</li>
+            <li><b>语义清洗</b>：去噪、统一表述、消歧</li>
+            <li><b>冗余压缩</b>：合并重复、精简资产</li>
+            <li><b>调用效果追踪</b>：记录真实调用与命中</li>
+          </ul>
+        </section>
+        <section>
+          <h4>② 5 个主视图</h4>
+          <ul>
+            <li><b>技能资产</b>：浏览 / 校验你的技能仓库</li>
+            <li><b>仿真沙盘</b>：反事实调度 / 成本延迟仿真</li>
+            <li><b>冲突检测</b>：技能间规则冲突与消解</li>
+            <li><b>数据看板</b>：KPI 与覆盖度总览</li>
+            <li><b>进化</b>：自主进化闭环 + 趋势 + 账本</li>
+          </ul>
+        </section>
+        <section>
+          <h4>③ 如何运行「自主进化」</h4>
+          <ul>
+            <li>进化视图点「▶ 运行自主进化」手动跑一轮</li>
+            <li>或开「⚙ 自动进化」开关，后台周期自跑</li>
+          </ul>
+        </section>
+        <section>
+          <h4>④ 后端来源 与 自动进化开关</h4>
+          <ul>
+            <li>后端：<b>local-st</b>(本地 OpenAI 兼容) / <b>local-tfidf</b> / <b>openai</b></li>
+            <li>「自动进化」开 = 后台周期自跑；关 = 仅手动</li>
+          </ul>
+        </section>
+        <section>
+          <h4>⑤ 进化账本 / 趋势图 怎么读</h4>
+          <ul>
+            <li>账本：每次进化动作的时间线（含外部变化记录）</li>
+            <li>趋势图：Gold 覆盖度 / F1 选对率 随时间连续演进（红点=异常，可点击看详情）</li>
+            <li>「上次外部变化」：最近一次技能集增 / 删 / 改的清单与时间</li>
+          </ul>
+        </section>
+      </div>
+      <button id="onboardingStartBtn" class="btn" type="button">开始使用</button>
+    </div>
+  </div>
 
   <!-- 资产视图 -->
   <section id="view-assets" class="view">
@@ -122,6 +176,8 @@
         </div>
       </div>
 
+      <div id="lastExternalChange" class="last-external-change">★ 上次外部变化：加载中…</div>
+
       <div class="card trend-chart">
         <h3>进化趋势 · Gold 覆盖度 / F1 选对率</h3>
         <div id="trendChart">
@@ -176,6 +232,9 @@
   </section>
 
   <div id="toast" class="toast hidden"></div>
+
+  <!-- B-4 异常详情浮层（点击趋势图异常点弹出，可定位账本条目） -->
+  <div id="anomalyDetail" class="anomaly-detail hidden"></div>
 
   <script src="/app.js"></script>
 </body>

@@ -52,3 +52,33 @@ def test_config_vectorizer_returns_provider(skillforge_env):
     )
     assert r2.status_code == 200
     assert r2.json()["provider"] == "local-st"
+
+
+def test_evolve_pressure_endpoint(skillforge_env):
+    """A-4 压力源信号可观测：GET /api/evolve/pressure 存在且按设计返回。
+
+    无历史 skill_signature_change 时 last_change=null；存在时解析 changeset。
+    直接验证端点路由、状态码与响应结构（与 arch §3.5 / simbank.get_ledger 一致）。
+    """
+    skillforge_env.make_skill("my-alpha", "处理用户订单退款与售后流程")
+    evolve.run_evolve(trigger="t")
+    client = TestClient(server.app)
+
+    # 初始无外部变化 → last_change 为 null
+    r = client.get("/api/evolve/pressure")
+    assert r.status_code == 200
+    body = r.json()
+    assert "last_change" in body and "signature" in body
+    assert body["last_change"] is None
+    assert body["signature"]["skill_count"] >= 1
+    assert body["signature"]["baseline"] == "skills_signature.json"
+
+    # 改技能 SKILL.md 触发外部变化 → last_change 解析出 changeset + ts
+    skillforge_env.make_skill("my-alpha", "处理用户订单退款与售后流程（修订版）")
+    evolve.run_evolve(trigger="t")
+    r2 = client.get("/api/evolve/pressure")
+    assert r2.status_code == 200
+    ch = r2.json()["last_change"]
+    assert ch is not None
+    assert "changed" in ch and "added" in ch and "removed" in ch and "ts" in ch
+    assert "my-alpha" in ch["changed"]

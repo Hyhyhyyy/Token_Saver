@@ -274,6 +274,29 @@ def get_evolution_metrics(limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_last_evolution_metric() -> dict | None:
+    """返回 evolution_metrics 最新一行（A-5 节流用，id DESC LIMIT 1）。
+
+    返回 {id, ts, gold_coverage, f1_acc_before, f1_acc_after}；无数据返回 None。
+    ts 为 UTC ISO-8601（与 simbank._now 同格式，可经 datetime.fromisoformat 解析）。
+    """
+    c = _conn()
+    row = c.execute(
+        "SELECT id, ts, gold_coverage, f1_acc_before, f1_acc_after "
+        "FROM evolution_metrics ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    c.close()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "ts": row["ts"],
+        "gold_coverage": row["gold_coverage"],
+        "f1_acc_before": row["f1_acc_before"],
+        "f1_acc_after": row["f1_acc_after"],
+    }
+
+
 def _evolution_rows(since: str | None = None, until: str | None = None,
                     limit: int | None = None) -> list[dict]:
     """按时间窗（ISO 字符串）拉取账本行，ISO 字符串可直接按字典序比较。"""

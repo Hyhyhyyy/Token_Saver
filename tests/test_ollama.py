@@ -50,3 +50,40 @@ def test_resolve_backend_source(skillforge_env):
     assert "ollama_available" in src and "provider" in src and "backend" in src
     # ollama 缓存为 None 时字段存在（bool|None）
     assert src["ollama_available"] is None or isinstance(src["ollama_available"], bool)
+
+
+def test_probe_candidates_returns_first_available(skillforge_env):
+    """D-3：首个可达候选胜出，返回其 url（短路，不探测后续不可用者）。"""
+    urls = [skillforge_env.mock_url, "http://127.0.0.1:1/v1/embeddings"]
+    assert scorer.probe_candidates(urls) == skillforge_env.mock_url
+
+
+def test_probe_candidates_returns_none_when_all_down(skillforge_env_tfidf):
+    """D-3：全部不可达返回 None。"""
+    urls = ["http://127.0.0.1:1/v1/embeddings", "http://127.0.0.1:2/v1/embeddings"]
+    assert scorer.probe_candidates(urls) is None
+
+
+def test_ensure_default_probes_when_cache_none_and_available(skillforge_env):
+    """R-2：_ollama_available 为 None（独立路径）且未传 candidate_url → 先探测设置缓存。
+    候选可用 → 落地 local-st，缓存置 True。
+    """
+    scorer._ollama_available = None
+    config.VECTORIZER_PATH.unlink()  # 模拟首次启动（无 vectorizer.json）
+    # 注入候选列表为 mock 端点（独立路径：不传 candidate_url，先探测）
+    scorer.config.EMBEDDING_CANDIDATE_URLS = [skillforge_env.mock_url]
+    cfg = scorer.ensure_default_vectorizer()
+    assert cfg["provider"] == "local-st"
+    assert scorer._ollama_available is True
+    assert config.VECTORIZER_PATH.exists()
+
+
+def test_ensure_default_probes_when_cache_none_and_down(skillforge_env_tfidf):
+    """R-2：_ollama_available 为 None（独立路径）探测全不可达 → 缓存置 False，回退 local-tfidf。"""
+    scorer._ollama_available = None
+    config.VECTORIZER_PATH.unlink()  # 模拟首次启动（无 vectorizer.json）
+    scorer.config.EMBEDDING_CANDIDATE_URLS = ["http://127.0.0.1:1/v1/embeddings"]
+    cfg = scorer.ensure_default_vectorizer()
+    assert cfg["backend"] == "local-tfidf"
+    assert scorer._ollama_available is False
+    assert config.VECTORIZER_PATH.exists()

@@ -124,6 +124,22 @@ VECTORIZER_PRESET_ST_PATH = Path(__file__).resolve().parent.parent / "data" / "v
 # D-2 ollama 探测端点（默认同 EMBEDDING_API_URL）
 EMBEDDING_PROBE_URL = os.environ.get("EMBEDDING_PROBE_URL", EMBEDDING_API_URL)
 
+# ---- v2.4 增量配置（A-5 节流 / D-3 多本地候选探测）----
+
+# A-5 heartbeat 节流：连续 no-op 且指标值与上一行相同、且距上一行写入 < 该间隔（秒）
+# 时跳过本行 metrics 写入（抽稀，避免长空转膨胀），值变 / 超间隔必写保证趋势连续。
+HEARTBEAT_MIN_INTERVAL_SEC = float(os.environ.get("HEARTBEAT_MIN_INTERVAL_SEC", "60"))
+
+# D-3 多本地后端候选探测：逗号分隔的 OpenAI 兼容 embeddings 端点列表，默认含 ollama。
+# 启动 / 显式刷新时按序探测首个可用者落地 local-st（provider=local-st）。
+EMBEDDING_CANDIDATE_URLS = [
+    u.strip()
+    for u in os.environ.get(
+        "EMBEDDING_CANDIDATE_URLS", "http://localhost:11434/v1/embeddings"
+    ).split(",")
+    if u.strip()
+]
+
 
 def auto_evolve_on_start() -> bool:
     """开机自启开关：读取 AUTO_EVOLVE_ON_START 环境变量（默认 false）。

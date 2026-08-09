@@ -18,7 +18,7 @@ from .tracker import log_event, get_stats, get_series, get_leaderboard, get_skil
 from .tokenizer import BACKEND, count_tokens
 from .spec import STANDARD_VERSION, SKILL_TEMPLATE, DESC_TEMPLATE, DESC_EXAMPLE, get_validation_rules
 from . import config
-from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve, auto_loop
+from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve, auto_loop, skill_signature
 from .scorer import get_vectorizer, _load_vectorizer_config, conflict_default_threshold
 from .scorer import (
     resolve_backend_source,
@@ -26,6 +26,7 @@ from .scorer import (
     set_ollama_available,
     ensure_default_vectorizer,
     probe_ollama,
+    probe_candidates,
 )
 import json
 
@@ -43,13 +44,19 @@ async def lifespan(app: FastAPI):
     D-2：启动时探测 ollama 可用性并据预设落地 DATA_DIR/vectorizer.json（开箱即用），
     结果缓存于 scorer 模块级变量，仅启动/lifespan 探测一次（Q8）。
     """
-    # D-2：启动探测 ollama 可用性 + 落地默认 vectorizer.json（开箱即用）
+    # D-2 / D-3：启动按序探测多本地候选 embeddings 端点 + 落地默认 vectorizer.json
     try:
-        ok = probe_ollama(config.EMBEDDING_PROBE_URL)
-        set_ollama_available(ok)
-        ensure_default_vectorizer()
+        winner = probe_candidates(config.EMBEDDING_CANDIDATE_URLS)
+        if winner:
+            # 胜出端点可用 → 缓存可用 + 落地 local-st（api_url=胜出端点，U3）
+            set_ollama_available(True)
+            ensure_default_vectorizer(candidate_url=winner)
+        else:
+            # 全不可达 → 回退 local-tfidf（与 D-2 一致）
+            set_ollama_available(False)
+            ensure_default_vectorizer()
     except Exception as e:  # noqa: BLE001
-        print(f"[evolve] ollama 探测/落地 vectorizer 异常（已吞掉）：{e}")
+        print(f"[evolve] 后端探测/落地 vectorizer 异常（已吞掉）：{e}")
 
     if config.auto_evolve_on_start():
         try:
@@ -356,14 +363,18 @@ def get_vectorizer_config():
 
 @app.post("/api/config/vectorizer/probe")
 def post_probe_vectorizer():
-    """显式刷新 ollama 探测 + 落地默认 vectorizer.json + 返回当前后端来源（Q8）。
+    """显式刷新多候选 embeddings 端点探测 + 落地默认 vectorizer.json + 返回当前后端来源（Q8）。
 
-    不每次 run_evolve 探测，仅在启动/lifespan 与「显式刷新」时重新探测并缓存。
+    不每次 run_evolve 探测，仅在启动/lifespan 与「显式刷新」时重新探测并缓存（D-3）。
     """
     try:
-        ok = probe_ollama(config.EMBEDDING_PROBE_URL)
-        set_ollama_available(ok)
-        ensure_default_vectorizer()
+        winner = probe_candidates(config.EMBEDDING_CANDIDATE_URLS)
+        if winner:
+            set_ollama_available(True)
+            ensure_default_vectorizer(candidate_url=winner)
+        else:
+            set_ollama_available(False)
+            ensure_default_vectorizer()
         return resolve_backend_source()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"vectorizer 探测失败：{e}")
@@ -442,6 +453,42 @@ def get_sim_trends():
 
 
 # ============================ 自进化引擎（v2.1 · 进化账本 / 自主进化） ============================
+
+@app.get("/api/evolve/pressure")
+def get_evolve_pressure() -> dict:
+    """A-4 压力源信号可观测：返回最近一次 `skill_signature_change` 账本条目的解析
+    changeset（added/removed/changed 名称）+ 时间，以及当前签名统计（技能数/基线路径）。
+
+    - 读 simbank.get_ledger(action_type="skill_signature_change", limit=1) 取最新一条；
+      解析其 after_val（JSON changeset）+ ts。
+    - 无历史变化时 last_change 为 null。
+    - 零新增存储：直接复用 evolution_ledger，不改存储结构。
+    """
+    ledger = simbank.get_ledger(action_type="skill_signature_change", limit=1)
+    last_change = None
+    if ledger.get("entries"):
+        entry = ledger["entries"][0]
+        try:
+            changeset = json.loads(entry["after_val"]) if entry.get("after_val") else {}
+        except Exception:
+            changeset = {}
+        if not isinstance(changeset, dict):
+            changeset = {}
+        last_change = {
+            "added": changeset.get("added", []) or [],
+            "removed": changeset.get("removed", []) or [],
+            "changed": changeset.get("changed", []) or [],
+            "ts": entry.get("ts"),
+        }
+    sigs = skill_signature.compute_signatures()
+    return {
+        "last_change": last_change,
+        "signature": {
+            "skill_count": len(sigs),
+            "baseline": "skills_signature.json",
+        },
+    }
+
 
 @app.get("/api/evolve/ledger")
 def get_evolve_ledger(limit: int = 50, action_type: str | None = None,

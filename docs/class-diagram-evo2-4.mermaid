@@ -1,0 +1,100 @@
+classDiagram
+    %% ===== 本次 v2.4 变更涉及的模块/类关系 =====
+
+    class config {
+        +__version__: str = "2.4.0-evo"
+        +HEARTBEAT_MIN_INTERVAL_SEC: float = 60
+        +EMBEDDING_CANDIDATE_URLS: list~str~
+        +FILELOCK_TIMEOUT_SEC: float
+        +EMBEDDING_PROBE_URL: str
+        +SKILLS_SIGNATURE_PATH: Path
+    }
+
+    class skill_signature {
+        <<R-1 指纹升级>>
+        +SIGNATURE_SCHEMA: int = 2
+        +compute_signatures(skills_dir) dict~str,str~
+        +load_saved_signatures(path) dict~str,str~
+        +save_signatures(sigs, path) void
+        +detect_external_change(skills_dir, path) tuple~dict,bool~
+    }
+
+    class simbank {
+        <<A-5 取上一行>>
+        +get_ledger(action_type, limit) dict
+        +log_evolution(action_type, ...) dict
+        +log_evolution_metric(gold_coverage, f1_before, f1_after) dict
+        +get_last_evolution_metric() dict|null
+    }
+
+    class evolve {
+        <<A-5 节流 / R-1 静默重建>>
+        +run_evolve(seed_threshold, trigger) dict
+        -_compute_gold_coverage() float
+    }
+
+    class scorer {
+        <<D-3 多候选 / R-2 None边界>>
+        -_ollama_available: bool|None
+        +probe_ollama(url, timeout) bool
+        +probe_candidates(urls, timeout) str|null
+        +ensure_default_vectorizer(candidate_url) dict
+        +resolve_backend_source() dict
+        +set_ollama_available(flag) void
+    }
+
+    class server {
+        <<A-4 pressure端点 / D-3 探测>>
+        +GET /api/evolve/pressure() dict
+        +lifespan(app) void
+        +POST /api/config/vectorizer/probe() dict
+    }
+
+    class filelock {
+        <<C-4 超时降级>>
+        +FileLock
+        +__enter__() FileLock
+        -acquired: bool
+        +logger.warning(...)
+    }
+
+    class auto_loop {
+        <<C-4 跳过占位>>
+        +_with_filelock(fn) dict
+    }
+
+    class Frontend {
+        <<使用说明 / A-4 / B-4>>
+        +localStorage: skillforge_onboarding_v2_4
+        +#onboardingModal
+        +#anomalyDetail
+        +#lastExternalChange
+        +initOnboarding() void
+        +loadPressure() void
+        +_drawTrend() void  %% 异常点补 data-metric/idx/prev/cur/ts
+        +bindAnomalyClick() void
+    }
+
+    %% ---- 关系 ----
+    config <.. skill_signature : 读 SKILLS_SIGNATURE_PATH / SIGNATURE_SCHEMA
+    config <.. evolve : 读 HEARTBEAT_MIN_INTERVAL_SEC
+    config <.. scorer : 读 EMBEDDING_CANDIDATE_URLS / EMBEDDING_PROBE_URL
+    config <.. server : 读 EMBEDDING_CANDIDATE_URLS
+
+    evolve --> skill_signature : detect_external_change / compute+save
+    evolve --> simbank : log_evolution / log_evolution_metric / get_last_evolution_metric
+    evolve --> config : HEARTBEAT_MIN_INTERVAL_SEC
+
+    server --> simbank : get_ledger(skill_signature_change, limit=1)
+    server --> skill_signature : compute_signatures (统计)
+    server --> scorer : probe_candidates / ensure_default_vectorizer / resolve_backend_source
+    server --> auto_loop : run_protected
+
+    auto_loop --> filelock : FileLock(timeout)
+    auto_loop ..> scorer : set_ollama_available (lifespan 内)
+
+    scorer ..> config : EMBEDDING_CANDIDATE_URLS
+    scorer ..> scorer : probe_ollama (单url包装)
+
+    Frontend ..> server : GET /api/evolve/pressure
+    Frontend ..> Frontend : localStorage 持久化 / 异常点 data-* 下钻

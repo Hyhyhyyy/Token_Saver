@@ -308,6 +308,69 @@ text.trend-anomaly { fill: var(--red); font-size: 10px; font-family: var(--mono)
 /* 进化看板 · 账本筛选条 */
 .ledger-filter select { margin-left: 8px; }
 
+/* 顶栏「使用说明」按钮（不切换视图，仅唤起模态） */
+.help-btn { color: var(--primary); border-color: rgba(52, 224, 200, 0.35); }
+.help-btn:hover { color: #04140f; background: var(--primary); border-color: var(--primary); }
+
+/* 使用说明模态（P0 · 零构建，沿用暗色科技主题） */
+.onboarding-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; }
+.onboarding-modal.hidden { display: none; }
+.onboarding-overlay { position: absolute; inset: 0; background: rgba(3, 6, 11, 0.72); backdrop-filter: blur(4px); }
+.onboarding-card {
+  position: relative; z-index: 1; width: min(620px, 92vw); max-height: 86vh; overflow-y: auto;
+  background: var(--panel-solid); border: 1px solid var(--primary); border-radius: 16px;
+  box-shadow: 0 0 40px rgba(52, 224, 200, 0.25); padding: 24px 26px; color: var(--text);
+  animation: rise .35s cubic-bezier(.2,.8,.2,1) backwards;
+}
+.onboarding-card h2 { margin: 0 0 14px; font-size: 17px; color: #eaf6f3; letter-spacing: .5px; text-shadow: 0 0 12px rgba(52,224,200,0.25); }
+.onboarding-close {
+  position: absolute; top: 12px; right: 14px; width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 18px; line-height: 1; transition: color .2s, border-color .2s;
+}
+.onboarding-close:hover { color: var(--primary); border-color: var(--primary); }
+.onboarding-body { font-size: 13px; line-height: 1.6; }
+.onboarding-body section { margin-bottom: 14px; }
+.onboarding-body h4 { margin: 0 0 6px; font-size: 13.5px; color: var(--primary); letter-spacing: .5px; }
+.onboarding-body ul { margin: 0; padding-left: 18px; }
+.onboarding-body li { margin: 3px 0; color: var(--text); }
+.onboarding-body b { color: #eaf6f3; }
+#onboardingStartBtn { margin-top: 8px; width: 100%; font-size: 14px; }
+
+/* A-4 上次外部变化状态行 */
+.last-external-change {
+  margin: 12px 0 4px; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+  background: var(--blue-soft); border: 1px solid rgba(90, 169, 255, 0.3); color: var(--text);
+}
+
+/* B-4 异常详情浮层（点击趋势图异常点弹出） */
+.anomaly-detail {
+  position: fixed; right: 24px; bottom: 24px; z-index: 150; width: min(320px, 90vw);
+  background: var(--panel-solid); border: 1px solid var(--red); border-radius: 12px;
+  box-shadow: 0 0 30px rgba(255, 107, 107, 0.3); padding: 14px 16px; color: var(--text);
+  animation: rise .3s cubic-bezier(.2,.8,.2,1) backwards;
+}
+.anomaly-detail.hidden { display: none; }
+.anomaly-detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.anomaly-detail-head strong { color: var(--red); font-size: 14px; letter-spacing: .5px; }
+.anomaly-close {
+  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1;
+}
+.anomaly-close:hover { color: var(--red); border-color: var(--red); }
+.anomaly-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; border-bottom: 1px dashed var(--border-soft); }
+.anomaly-row span { color: var(--muted); }
+.anomaly-row b { font-family: var(--mono); }
+.anomaly-row b.down { color: var(--red); }
+.anomaly-detail .btn { margin-top: 12px; width: 100%; }
+
+/* B-4 账本异常行高亮（点击异常点「定位账本」时高亮对应行） */
+.anomaly-highlight {
+  border-color: var(--red); background: var(--red-soft);
+  box-shadow: 0 0 14px rgba(255, 107, 107, 0.35);
+}
+
+
 
 select, input[type="file"] { font-family: inherit; }
 select { background: var(--panel-solid); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }

@@ -75,7 +75,10 @@ async function init() {
   renderSidebar();
   bindNav();
   bindTabs();
+  bindAnomalyClick();   // B-4：事件委托（一次绑定，不阻塞首屏）
   if (list.count) selectSkill(list.skills[0].name);
+  // 使用说明：首次进入自动弹（不阻塞首屏渲染）
+  initOnboarding();
 }
 
 function renderSidebar() {
@@ -574,6 +577,7 @@ function renderEvolve() {
   loadTrends();
   getAutoStatus();
   loadBackendSource();
+  loadPressure();   // A-4：拉取并渲染「上次外部变化」
 }
 
 function bindEvolveNav() {
@@ -766,11 +770,13 @@ function renderTrendChart(points) {
   }
   _drawTrend("#trendGold", points, {
     label: "Gold 覆盖度 (%)",
+    metricLabel: "Gold 覆盖度(%)",
     minY: 0, maxY: 100, value: (p) => p.gold_coverage,
     cls: "trend-line-gold", yFmt: (v) => v.toFixed(1) + "%",
   });
   _drawTrend("#trendF1", points, {
     label: "F1 选对率（清洗前/后）",
+    metricLabel: "F1 选对率(后)",
     minY: 0, maxY: 1, dual: true,
     before: (p) => p.f1_acc_before, after: (p) => p.f1_acc_after,
     clsBefore: "trend-line-f1 before", clsAfter: "trend-line-f1 after",
@@ -837,7 +843,14 @@ function _drawTrend(sel, points, opt) {
       const ab = isAnomAt(i);
       const clsB = ab ? "trend-dot before trend-anomaly" : "trend-dot before";
       const clsA = ab ? "trend-dot after trend-anomaly" : "trend-dot after";
-      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(av[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${clsA}"><title>${esc(p.ts)} · 后: ${opt.yFmt(av[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
+      let attrA = `cx="${xAt(i).toFixed(1)}" cy="${yAt(av[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${clsA}"`;
+      if (ab) {
+        // B-4：异常点补 data-*（前/本值 + 指标 + 序号 + ts），供点击下钻浮层
+        const prevV = i > 0 ? av[i - 1] : av[i];
+        attrA += ` data-metric="${esc(opt.metricLabel || opt.label)}" data-idx="${i}"` +
+                 ` data-prev="${prevV.toFixed(4)}" data-cur="${av[i].toFixed(4)}" data-ts="${esc(p.ts)}"`;
+      }
+      dots += `<circle ${attrA}><title>${esc(p.ts)} · 后: ${opt.yFmt(av[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
       dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(bv[i]).toFixed(1)}" r="3" class="${clsB}"><title>${esc(p.ts)} · 前: ${opt.yFmt(bv[i])}</title></circle>`;
     });
   } else {
@@ -846,7 +859,14 @@ function _drawTrend(sel, points, opt) {
     points.forEach((p, i) => {
       const ab = isAnomAt(i);
       const cls = ab ? "trend-dot gold trend-anomaly" : "trend-dot gold";
-      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(vv[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${cls}"><title>${esc(p.ts)} · ${esc(opt.label)}: ${opt.yFmt(vv[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
+      let attr = `cx="${xAt(i).toFixed(1)}" cy="${yAt(vv[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${cls}"`;
+      if (ab) {
+        // B-4：异常点补 data-*（前/本值 + 指标 + 序号 + ts），供点击下钻浮层
+        const prevV = i > 0 ? vv[i - 1] : vv[i];
+        attr += ` data-metric="${esc(opt.metricLabel || opt.label)}" data-idx="${i}"` +
+                ` data-prev="${prevV.toFixed(4)}" data-cur="${vv[i].toFixed(4)}" data-ts="${esc(p.ts)}"`;
+      }
+      dots += `<circle ${attr}><title>${esc(p.ts)} · ${esc(opt.label)}: ${opt.yFmt(vv[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
     });
   }
 
@@ -941,6 +961,122 @@ async function renderTrendCards() {
     ).join("");
     if (s.total) countUpAll($("#evolveKpiRow"));
   } catch (e) { /* 静默：不影响账本渲染 */ }
+}
+
+/* ---------- 使用说明（P0 · 首次自动弹 / 顶栏唤起 / localStorage 持久化） ---------- */
+function initOnboarding() {
+  const KEY = "skillforge_onboarding_v2_4";
+  const modal = $("#onboardingModal");
+  if (!modal) return;
+
+  const show = () => modal.classList.remove("hidden");
+  const hide = () => modal.classList.add("hidden");
+  const close = () => {
+    // 置位 localStorage → 刷新不再自动弹；多视图再次唤起仍可关闭
+    try { localStorage.setItem(KEY, "seen"); } catch (e) { /* 隐私模式忽略 */ }
+    hide();
+  };
+
+  // 关闭入口：遮罩点击 / X / 「开始使用」按钮
+  modal.querySelectorAll("[data-close]").forEach((b) => { b.onclick = close; });
+  const startBtn = $("#onboardingStartBtn");
+  if (startBtn) startBtn.onclick = close;
+
+  // 顶栏「❓ 使用说明」随时唤起同一模态
+  const helpBtn = $("#nav-help");
+  if (helpBtn) helpBtn.onclick = show;
+
+  // Esc 关闭（仅模态可见时）
+  if (!initOnboarding._escBound) {
+    initOnboarding._escBound = true;
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+    });
+  }
+
+  // 首次（localStorage 未置位）自动弹
+  let seen = false;
+  try { seen = localStorage.getItem(KEY) === "seen"; } catch (e) { seen = false; }
+  if (!seen) show();
+}
+
+/* ---------- A-4 压力源可观测：上次外部变化 ---------- */
+async function loadPressure() {
+  const el = $("#lastExternalChange");
+  if (!el) return;
+  try {
+    const r = await api("/api/evolve/pressure");
+    const lc = r.last_change;
+    if (lc) {
+      const ts = (lc.ts || "").slice(0, 19).replace("T", " ");
+      const add = (lc.added || []).length;
+      const rem = (lc.removed || []).length;
+      const chg = (lc.changed || []).length;
+      el.textContent = `★ 上次外部变化：(+${add}新增 / -${rem}删除 / ~${chg}修改) @ ${ts}`;
+    } else {
+      el.textContent = "★ 上次外部变化：暂无外部变化";
+    }
+  } catch (e) {
+    el.textContent = "★ 上次外部变化：加载失败";
+  }
+}
+
+/* ---------- B-4 异常详情下钻：点击趋势图异常点浮层 + 定位账本 ---------- */
+function bindAnomalyClick() {
+  if (bindAnomalyClick._bound) return;  // 仅绑定一次（事件委托）
+  bindAnomalyClick._bound = true;
+  document.addEventListener("click", (e) => {
+    const dot = e.target.closest && e.target.closest(".trend-anomaly");
+    if (!dot || !dot.dataset.ts) return;
+
+    const metric = dot.dataset.metric || "指标";
+    const prev = parseFloat(dot.dataset.prev);
+    const cur = parseFloat(dot.dataset.cur);
+    const ts = dot.dataset.ts || "";
+    const diff = cur - prev;
+    // 变化幅度：绝对差 + 百分比（前值为 0 且变化非 0 记 ∞%）
+    let pctTxt;
+    if (prev === 0) {
+      pctTxt = diff === 0 ? "0%" : "∞%";
+    } else {
+      pctTxt = ((diff / Math.abs(prev)) * 100).toFixed(1) + "%";
+    }
+    const sign = diff >= 0 ? "+" : "";
+
+    const panel = $("#anomalyDetail");
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="anomaly-detail-head">
+        <strong>异常详情</strong>
+        <button class="anomaly-close" type="button" data-anom-close aria-label="关闭">×</button>
+      </div>
+      <div class="anomaly-row"><span>指标</span><b>${esc(metric)}</b></div>
+      <div class="anomaly-row"><span>前一点</span><b>${prev.toFixed(4)}</b></div>
+      <div class="anomaly-row"><span>本点</span><b>${cur.toFixed(4)}</b></div>
+      <div class="anomaly-row"><span>变化幅度</span><b class="${diff < 0 ? "down" : ""}">${sign}${diff.toFixed(4)} (${sign}${pctTxt})</b></div>
+      <button class="btn secondary" id="anomalyLocateBtn" type="button">定位账本条目</button>
+    `;
+    panel.classList.remove("hidden");
+
+    panel.querySelector("[data-anom-close]").onclick = () => panel.classList.add("hidden");
+    // 点击浮层外部（遮罩区）关闭
+    panel.onclick = (ev) => { if (ev.target === panel) panel.classList.add("hidden"); };
+
+    $("#anomalyLocateBtn").onclick = () => {
+      // U5：按 data-ts 前 19 字符（YYYY-MM-DD HH:MM:SS）匹配 ledger-row 的 ts 高亮对应行；多行同秒取首个
+      const target = ts.slice(0, 19).replace("T", " ");
+      const rows = document.querySelectorAll("#ledger-timeline .ledger-row");
+      let firstMatch = null;
+      rows.forEach((row) => {
+        const tsEl = row.querySelector(".ledger-ts");
+        const rowTs = tsEl ? (tsEl.textContent || "").trim() : "";
+        const match = rowTs.slice(0, 19) === target;
+        row.classList.toggle("anomaly-highlight", match);
+        if (match && !firstMatch) firstMatch = row;
+      });
+      if (firstMatch) firstMatch.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+  });
 }
 
 init().catch((e) => { $("#meta").textContent = "初始化失败：" + e.message; });

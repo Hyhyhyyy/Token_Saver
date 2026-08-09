@@ -268,14 +268,38 @@ def run_evolve(seed_threshold: int | None = None,
         and not external_change
     )
 
-    # A-2 heartbeat：无论是否 no-op，运行末都写一行 evolution_metrics（连续时间序列）
-    simbank.log_evolution_metric(
-        gold_coverage,
-        schedule_result["accuracy_before"],
-        schedule_result["accuracy_after"],
-    )
+    # A-2 heartbeat：无论是否 no-op，运行末通常写一行 evolution_metrics（连续时间序列）
+    # A-5 节流（长空转抽稀）：连续 no-op 且 gold_coverage / f1_acc_before / f1_acc_after
+    # 与上一行 metrics 在容差 1e-6 内相同、且距上一行写入 < HEARTBEAT_MIN_INTERVAL_SEC
+    # 时跳过本行写入；值变 / 超间隔 / 无上一行 → 必写，保证趋势图时间轴连续不中断。
+    # no-op 仍不写 ledger 业务条目（B-3 防刷屏语义不变）。
+    _write_metric = True
+    if is_no_op:
+        _last = simbank.get_last_evolution_metric()
+        if _last is not None:
+            _same_vals = (
+                abs((_last["gold_coverage"] or 0.0) - gold_coverage) < 1e-6
+                and abs((_last["f1_acc_before"] or 0.0) - schedule_result["accuracy_before"]) < 1e-6
+                and abs((_last["f1_acc_after"] or 0.0) - schedule_result["accuracy_after"]) < 1e-6
+            )
+            # 间隔判定：当前本轮起始时间(run_start) 与 上一行写入时间 之差
+            try:
+                _last_dt = datetime.fromisoformat(_last["ts"])
+                _now_dt = datetime.fromisoformat(run_start)
+                _interval_ok = (_now_dt - _last_dt).total_seconds() >= config.HEARTBEAT_MIN_INTERVAL_SEC
+            except Exception:
+                _interval_ok = True  # ts 解析失败 → 保守必写
+            if _same_vals and not _interval_ok:
+                _write_metric = False
 
-    # A-1 退出前更新技能内容签名（建立/刷新基线，供下轮比对外部变化）
+    if _write_metric:
+        simbank.log_evolution_metric(
+            gold_coverage,
+            schedule_result["accuracy_before"],
+            schedule_result["accuracy_after"],
+        )
+
+    # A-1 退出前更新技能内容签名（建立/刷新基线，供下轮比对外部变化；静默重建或更新）
     skill_signature.save_signatures(skill_signature.compute_signatures())
 
     return {
@@ -296,6 +320,7 @@ def run_evolve(seed_threshold: int | None = None,
         "no_op": is_no_op,
         "gold_coverage": gold_coverage,
         "ran_at": run_start,
+        "throttled": not _write_metric,
     }
 
 

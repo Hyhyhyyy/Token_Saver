@@ -8,9 +8,12 @@
 """
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from pathlib import Path
+
+logger = logging.getLogger("skillforge.filelock")
 
 if sys.platform == "win32":  # pragma: no cover - 仅在 Windows 执行
     import msvcrt
@@ -81,8 +84,9 @@ class FileLock:
         if _acquire(self._fh, self._timeout):
             self._acquired = True
         else:
-            # 超时未获取：占用中，安全跳过
+            # 超时未获取：占用中，安全跳过（C-4：记录 warning 便于排查并发争用）
             self._acquired = False
+            logger.warning("跨进程锁获取超时，将安全跳过本轮")
             try:
                 self._fh.close()
             except OSError:

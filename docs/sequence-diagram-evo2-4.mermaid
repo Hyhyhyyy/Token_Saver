@@ -1,0 +1,84 @@
+sequenceDiagram
+    autonumber
+    %% ===== 1. 使用说明首弹（前端，零构建） =====
+    actor U as 用户
+    participant LS as localStorage
+    participant APP as app.js(initOnboarding)
+    participant MOD as #onboardingModal
+
+    U->>APP: 页面加载 DOMContentLoaded（init 末尾，不阻塞首屏）
+    APP->>LS: 读取 skillforge_onboarding_v2_4
+    alt 未置位（首次）
+        LS-->>APP: null
+        APP->>MOD: 自动显示模态（四大能力/5视图/自主进化/后端/账本趋势读法）
+        U->>MOD: 点「开始使用」/X/遮罩/Esc 关闭
+        MOD->>LS: 写入 "seen"
+    else 已置位（老用户）
+        LS-->>APP: "seen"
+        APP->>MOD: 不自动弹
+    end
+    U->>APP: 随时点击顶栏「❓ 使用说明」
+    APP->>MOD: 再次唤起同一模态
+
+    %% ===== 2. A-4 pressure 读取（可观测） =====
+    participant UI as 进化视图
+    participant API as GET /api/evolve/pressure
+    participant LED as simbank.get_ledger
+
+    UI->>API: 拉取上次外部变化
+    API->>LED: get_ledger(action_type="skill_signature_change", limit=1)
+    LED-->>API: 最新条目 {after_val(JSON changeset), ts}
+    API-->>UI: {last_change:{added,removed,changed,ts}, signature:{skill_count,baseline}}
+    UI->>UI: 渲染「上次外部变化：(+X/-Y/~Z) @ ts」或「暂无外部变化」
+
+    %% ===== 3. R-1 指纹比对 + 静默迁移 =====
+    participant EV as evolve.run_evolve
+    participant SIG as skill_signature
+    participant JSON as skills_signature.json
+
+    EV->>SIG: detect_external_change()
+    SIG->>SIG: compute_signatures() 全目录复合指纹
+    SIG->>JSON: load_saved_signatures()
+    alt _schema 不符（升级首跑/旧基线）
+        JSON-->>SIG: 旧 hex（_schema 缺失/!=2）
+        SIG->>SIG: 视为无基线 → saved={} → external_change=False
+        SIG-->>EV: (changeset, False)
+        EV->>JSON: save_signatures() 静默重建基线（不记 skill_signature_change）
+    else _schema 一致
+        SIG->>SIG: compare_signatures → changeset
+        SIG-->>EV: (changeset, external_change)
+        opt changeset 非空
+            EV->>LED: log_evolution("skill_signature_change", after_val=changeset)
+        end
+    end
+
+    %% ===== 4. A-5 节流判定 =====
+    participant M as simbank.get_last_evolution_metric
+
+    EV->>EV: 计算 is_no_op（gold_seeded/auto_recalled/deposited/external_change）
+    EV->>M: 取 evolution_metrics 最新一行
+    M-->>EV: {ts, gold_coverage, f1_acc_before, f1_acc_after} | null
+    alt is_no_op 且 值同上一行 且 间隔 < HEARTBEAT_MIN_INTERVAL_SEC
+        EV->>EV: 跳过写 metrics（抽稀）
+    else 值变 / 超间隔 / 首行
+        EV->>LED: log_evolution_metric(...) 必写（保证连续）
+    end
+
+    %% ===== 5. D-3 候选探测 =====
+    participant BOOT as server.lifespan
+    participant PROBE as scorer.probe_candidates
+    participant VEC as vectorizer.json
+
+    BOOT->>PROBE: probe_candidates(config.EMBEDDING_CANDIDATE_URLS)
+    loop 按序探测每个 url
+        PROBE->>PROBE: probe_ollama(url) 返回 bool
+    end
+    alt 首个可达且 embeddings 合法
+        PROBE-->>BOOT: winner_url
+        BOOT->>scorer: set_ollama_available(True)
+        BOOT->>VEC: ensure_default_vectorizer(candidate_url=winner_url) 落 local-st(api_url=winner)
+    else 全不可达
+        PROBE-->>BOOT: None
+        BOOT->>scorer: set_ollama_available(False)
+        BOOT->>VEC: ensure_default_vectorizer() 回退 local-tfidf
+    end
