@@ -1,133 +1,94 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 380" width="1280" height="380" role="img" aria-label="SkillForge">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 380" width="1280" height="380" role="img" aria-label="Token_Saver · SkillForge 技能精炼台">
   <defs>
-    <linearGradient id="bg_Token_Saver" x1="0" y1="0" x2="0.4" y2="1">
-      <stop offset="0.00" stop-color="#0f172a"/><stop offset="0.33" stop-color="#134e4a"/><stop offset="0.67" stop-color="#064e3b"/><stop offset="1.00" stop-color="#1e293b"/>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#06140f"/>
+      <stop offset="0.55" stop-color="#0c2318"/>
+      <stop offset="1" stop-color="#050f0b"/>
     </linearGradient>
-    <linearGradient id="g_Token_Saver" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#a7f3d0"/>
-      <stop offset="0.5" stop-color="#6ee7b7"/>
-      <stop offset="1" stop-color="#fcd34d"/>
-      <animate attributeName="x1" values="0;0.3;0" dur="8s" repeatCount="indefinite"/>
-      <animate attributeName="x2" values="1;0.7;1" dur="8s" repeatCount="indefinite"/>
+    <linearGradient id="beamGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#bbf7d0" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#6ee7b7" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#bbf7d0" stop-opacity="0"/>
     </linearGradient>
-    <filter id="blur_Token_Saver" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="34"/>
-    </filter>
-    <clipPath id="clip_Token_Saver"><rect x="0" y="0" width="1280" height="380" rx="18"/></clipPath>
-    <linearGradient id="shim_g_Token_Saver" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#fbbf24" stop-opacity="0"/>
-      <stop offset="0.5" stop-color="#fbbf24" stop-opacity="0.8"/>
-      <stop offset="1" stop-color="#fbbf24" stop-opacity="0"/>
+    <radialGradient id="haloGrad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#10b981" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6ee7b7"/>
+      <stop offset="1" stop-color="#f5c451"/>
+    </linearGradient>
+    <linearGradient id="dashGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c1f16"/>
+      <stop offset="1" stop-color="#081512"/>
     </linearGradient>
   </defs>
-  <g clip-path="url(#clip_Token_Saver)">
-    <rect x="0" y="0" width="1280" height="380" fill="url(#bg_Token_Saver)"/>
-    <g filter="url(#blur_Token_Saver)">
 
-  <circle cx="180" cy="120" r="150" fill="#34d399" opacity="0.30">
-    <animateTransform attributeName="transform" type="translate" values="0 0; 40 16.0; 0 0" dur="60s" begin="0.0s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1" keyTimes="0;0.5;1"/>
-    <animate attributeName="opacity" values="0.18;0.42;0.18" dur="48.0s" begin="0.0s" repeatCount="indefinite"/>
-  </circle>
+  <rect width="1280" height="380" fill="url(#bgGrad)"/>
 
-  <circle cx="1080" cy="90" r="120" fill="#fbbf24" opacity="0.30">
-    <animateTransform attributeName="transform" type="translate" values="0 0; -30 -12.0; 0 0" dur="70s" begin="1.2s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1" keyTimes="0;0.5;1"/>
-    <animate attributeName="opacity" values="0.18;0.42;0.18" dur="56.0s" begin="1.2s" repeatCount="indefinite"/>
-  </circle>
-
-  <circle cx="980" cy="300" r="170" fill="#10b981" opacity="0.30">
-    <animateTransform attributeName="transform" type="translate" values="0 0; 50 20.0; 0 0" dur="55s" begin="0.6s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1" keyTimes="0;0.5;1"/>
-    <animate attributeName="opacity" values="0.18;0.42;0.18" dur="44.0s" begin="0.6s" repeatCount="indefinite"/>
-  </circle>
-
-  <circle cx="320" cy="320" r="110" fill="#fbbf24" opacity="0.30">
-    <animateTransform attributeName="transform" type="translate" values="0 0; -25 -10.0; 0 0" dur="65s" begin="2.0s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1" keyTimes="0;0.5;1"/>
-    <animate attributeName="opacity" values="0.18;0.42;0.18" dur="52.0s" begin="2.0s" repeatCount="indefinite"/>
-  </circle>
-</g>
-    
-  <circle cx="320" cy="190" r="150" fill="none" stroke="#34d399" stroke-width="1.2" opacity="0.18" stroke-dasharray="6 14">
-    <animateTransform attributeName="transform" type="rotate" from="0 320 190" to="360 320 190" dur="40s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="320" cy="190" r="110" fill="none" stroke="#34d399" stroke-width="1" opacity="0.12"/>
-
-  <g opacity="0.12">
-    <rect x="-300" y="150" width="300" height="3" fill="#34d399" transform="rotate(-18 0 150)">
-      <animateTransform attributeName="transform" type="translate" values="-200 0; 1700 0" dur="9s" repeatCount="indefinite"/>
-    </rect>
-    <rect x="-300" y="250" width="220" height="2" fill="#34d399" transform="rotate(-18 0 250)">
-      <animateTransform attributeName="transform" type="translate" values="-200 0; 1700 0" dur="13s" begin="2s" repeatCount="indefinite"/>
+  <!-- (a) BANNER-WIDE MOTION: green savings-light sweep across the full width -->
+  <g>
+    <rect x="-220" y="0" width="220" height="380" fill="url(#beamGrad)" opacity="0">
+      <animate attributeName="x" values="-220;1500;-220" dur="8.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0.5;0" dur="8.4s" repeatCount="indefinite"/>
     </rect>
   </g>
-    
-  <rect x="900" y="-40" width="120" height="460" fill="url(#shim_g_Token_Saver)" opacity="0.5" transform="skewX(-12)"><animateTransform attributeName="transform" type="translate" values="-200 0; 600 0" dur="3.8s" repeatCount="indefinite" additive="sum"/></rect>
-    <g transform="translate(1050,190)">
-    <defs>
-      <radialGradient id="coinGrad" cx="0.36" cy="0.30" r="0.9">
-        <stop offset="0" stop-color="#fef9c3"/>
-        <stop offset="0.5" stop-color="#fbbf24"/>
-        <stop offset="1" stop-color="#b45309"/>
-      </radialGradient>
-    </defs>
-    <circle cx="0" cy="0" r="96" fill="#fbbf24" opacity="0.10">
-      <animate attributeName="r" values="86;104;86" dur="4.2s" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values="0.07;0.16;0.07" dur="4.2s" repeatCount="indefinite"/>
+  <g fill="#a7f3d0">
+    <circle cx="0" cy="110" r="2.2" opacity="0.6">
+      <animate attributeName="cx" values="-20;1320" dur="10s" repeatCount="indefinite"/>
     </circle>
-    <g>
-      <circle cx="126" cy="-46" r="22" fill="url(#coinGrad)" stroke="#fbbf24" stroke-width="2"/>
-      <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="16s" repeatCount="indefinite"/>
-    </g>
-    <g>
-      <circle cx="-128" cy="50" r="15" fill="#34d399" opacity="0.9"/>
-      <animateTransform attributeName="transform" type="rotate" from="360 0 0" to="0 0 0" dur="20s" repeatCount="indefinite"/>
-    </g>
-    <g>
-      <circle cx="0" cy="0" r="74" fill="url(#coinGrad)" stroke="#fbbf24" stroke-width="3"/>
-      <circle cx="0" cy="0" r="58" fill="none" stroke="#fbbf24" stroke-width="1.5" opacity="0.55"/>
-      <path d="M0 -32 L0 24 M-17 6 L0 28 L17 6" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
-        <animateTransform attributeName="transform" type="translate" values="0 -5;0 6;0 -5" dur="2.4s" repeatCount="indefinite"/>
-      </path>
-      <animateTransform attributeName="transform" type="scale" values="1 1;1.04 1.04;1 1" dur="3.4s" repeatCount="indefinite"/>
-    </g>
-    <circle cx="66" cy="-80" r="4" fill="#fbbf24" opacity="0.85">
-      <animate attributeName="opacity" values="0.2;0.95;0.2" dur="2.4s" repeatCount="indefinite"/>
-    </circle>
-    <circle cx="-72" cy="76" r="3" fill="#34d399" opacity="0.8">
-      <animate attributeName="opacity" values="0.3;0.9;0.3" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+    <circle cx="0" cy="290" r="1.8" opacity="0.5">
+      <animate attributeName="cx" values="1320;-20" dur="12s" repeatCount="indefinite"/>
     </circle>
   </g>
-    
-  <line x1="80" y1="250" x2="440" y2="250" stroke="url(#g_Token_Saver)" stroke-width="4" stroke-linecap="round" stroke-dasharray="360" stroke-dashoffset="360">
-    <animate attributeName="stroke-dashoffset" values="360;0;0" keyTimes="0;0.55;1" dur="1.8s" fill="freeze"/>
-    <animate attributeName="opacity" values="0;1;1" keyTimes="0;0.2;1" dur="1.8s" fill="freeze"/>
+
+  <!-- (b) TITLE-SURROUND MOTION: pulsing halo + draw-on underline -->
+  <circle cx="292" cy="128" r="132" fill="url(#haloGrad)">
+    <animate attributeName="r" values="116;144;116" dur="4.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.5;0.85;0.5" dur="4.5s" repeatCount="indefinite"/>
+  </circle>
+
+  <text x="62" y="134" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="54" font-weight="800" fill="url(#titleGrad)">Token_Saver</text>
+  <line x1="64" y1="154" x2="330" y2="154" stroke="#f5c451" stroke-width="4" stroke-linecap="round" stroke-dasharray="270" stroke-dashoffset="270">
+    <animate attributeName="stroke-dashoffset" values="270;0;0;270" keyTimes="0;0.5;0.85;1" dur="6s" repeatCount="indefinite"/>
   </line>
-    
-  <text x="80" y="200" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" font-size="66" font-weight="800" fill="url(#g_Token_Saver)" letter-spacing="-1">
-    <animateTransform attributeName="transform" type="translate" values="-40 12; 0 0; 0 0" keyTimes="0;0.5;1" dur="1.6s" fill="freeze" calcMode="spline" keySplines="0.34 1.56 0.64 1;0 0 1 1"/>
-    <animate attributeName="opacity" values="0;1;1" keyTimes="0;0.5;1" dur="1.6s" fill="freeze"/>
-    SkillForge
-  </text>
-  <text x="82" y="238" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" font-size="22" font-weight="500" fill="#bbf7d0">
-    <animate attributeName="opacity" values="0;0;1" keyTimes="0;0.5;1" dur="1.8s" fill="freeze"/>
-    技能精炼台 · 让每一轮对话少花无效 Token
-  </text>
-      <g transform="translate(80,280)" opacity="0">
-    <rect x="0" y="0" width="67" height="28" rx="14" fill="#fbbf24" fill-opacity="0.14" stroke="#34d399" stroke-opacity="0.55" stroke-width="1"/>
-    <text x="34" y="19" text-anchor="middle" font-family="monospace" font-size="14" fill="#bbf7d0">Token</text>
-    <animate attributeName="opacity" values="0;1" begin="0.95s" dur="0.5s" fill="freeze"/>
-    <animateTransform attributeName="transform" type="translate" values="80 292; 80 280" begin="0.95s" dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.34 1.56 0.64 1;0 0 1 1" keyTimes="0;1"/>
+  <text x="64" y="188" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="19" font-weight="500" fill="#a7f3d0">SkillForge · 技能精炼台 · 降低无效 Token 开销</text>
+
+  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="15" font-weight="600" fill="#a7f3d0">
+    <rect x="64" y="208" width="88" height="30" rx="15" fill="#103024"/>
+    <text x="84" y="228">格式校验</text>
+    <rect x="168" y="208" width="88" height="30" rx="15" fill="#103024"/>
+    <text x="188" y="228">语义清洗</text>
+    <rect x="272" y="208" width="96" height="30" rx="15" fill="#103024"/>
+    <text x="292" y="228">节省看板</text>
   </g>
-  <g transform="translate(159,280)" opacity="0">
-    <rect x="0" y="0" width="40" height="28" rx="14" fill="#fbbf24" fill-opacity="0.14" stroke="#34d399" stroke-opacity="0.55" stroke-width="1"/>
-    <text x="20" y="19" text-anchor="middle" font-family="monospace" font-size="14" fill="#bbf7d0">技能</text>
-    <animate attributeName="opacity" values="0;1" begin="1.11s" dur="0.5s" fill="freeze"/>
-    <animateTransform attributeName="transform" type="translate" values="159 292; 159 280" begin="1.11s" dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.34 1.56 0.64 1;0 0 1 1" keyTimes="0;1"/>
-  </g>
-  <g transform="translate(211,280)" opacity="0">
-    <rect x="0" y="0" width="40" height="28" rx="14" fill="#fbbf24" fill-opacity="0.14" stroke="#34d399" stroke-opacity="0.55" stroke-width="1"/>
-    <text x="20" y="19" text-anchor="middle" font-family="monospace" font-size="14" fill="#bbf7d0">效率</text>
-    <animate attributeName="opacity" values="0;1" begin="1.27s" dur="0.5s" fill="freeze"/>
-    <animateTransform attributeName="transform" type="translate" values="211 292; 211 280" begin="1.27s" dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.34 1.56 0.64 1;0 0 1 1" keyTimes="0;1"/>
-  </g>
-    <text x="1240" y="356" text-anchor="end" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" font-size="14" fill="#bbf7d0" opacity="0.55">made with &#10084; by Hyhyhyyy</text>
+
+  <!-- HERO MOTIF (right): a savings dashboard with growing compression bars -->
+  <g transform="translate(985,196)">
+    <rect x="20" y="-104" width="190" height="208" rx="14" fill="url(#dashGrad)"/>
+    <rect x="20" y="-104" width="190" height="30" rx="14" fill="#103024"/>
+    <circle cx="40" cy="-89" r="4" fill="#34d399"/>
+    <circle cx="54" cy="-89" r="4" fill="#f5c451"/>
+    <text x="74" y="-84" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="700" fill="#a7f3d0">Token 节省看板</text>
+    <!-- compression bars growing from baseline -->
+    <g transform="translate(48,66)">
+      <g><animateTransform attributeName="transform" type="scale" values="1 0.25;1 1;1 0.25" dur="3.2s" repeatCount="indefinite"/><rect x="0" y="-70" width="20" height="70" rx="4" fill="#34d399"/></g>
+    </g>
+    <g transform="translate(84,66)">
+      <g><animateTransform attributeName="transform" type="scale" values="1 0.4;1 1;1 0.4" dur="3.6s" begin="0.3s" repeatCount="indefinite"/><rect x="0" y="-86" width="20" height="86" rx="4" fill="#10b981"/></g>
+    </g>
+    <g transform="translate(120,66)">
+      <g><animateTransform attributeName="transform" type="scale" values="1 0.55;1 1;1 0.55" dur="3s" begin="0.6s" repeatCount="indefinite"/><rect x="0" y="-98" width="20" height="98" rx="4" fill="#6ee7b7"/></g>
+    </g>
+    <g transform="translate(156,66)">
+      <g><animateTransform attributeName="transform" type="scale" values="1 0.7;1 1;1 0.7" dur="3.4s" begin="0.9s" repeatCount="indefinite"/><rect x="0" y="-110" width="20" height="110" rx="4" fill="#f5c451"/></g>
+    </g>
+    <!-- saving token coin with downward arrow -->
+    <g>
+      <animate attributeName="opacity" values="0.85;1;0.85" dur="3s" repeatCount="indefinite"/>
+      <circle cx="-70" cy="-40" r="26" fill="#10b981"/>
+      <text x="-70" y="-32" font-family="monospace" font-size="18" font-weight="800" fill="#052b1f" text-anchor="middle">∑</text>
+      <path d="M-70,-2 L-70,30 M-82,18 L-70,32 L-58,18" stroke="#f5c451" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
   </g>
 </svg>
