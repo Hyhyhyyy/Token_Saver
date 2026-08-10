@@ -1,94 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 380" width="1280" height="380" role="img" aria-label="Token_Saver · SkillForge 技能精炼台">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 380" role="img" aria-label="Token_Saver" font-family="'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
   <defs>
-    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#06140f"/>
-      <stop offset="0.55" stop-color="#0c2318"/>
-      <stop offset="1" stop-color="#050f0b"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#06231f"/>
+      <stop offset="1" stop-color="#0c3b34"/>
     </linearGradient>
-    <linearGradient id="beamGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#bbf7d0" stop-opacity="0"/>
-      <stop offset="0.5" stop-color="#6ee7b7" stop-opacity="0.8"/>
-      <stop offset="1" stop-color="#bbf7d0" stop-opacity="0"/>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#fbbf24"/>
     </linearGradient>
-    <radialGradient id="haloGrad" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#10b981" stop-opacity="0.5"/>
-      <stop offset="1" stop-color="#10b981" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#6ee7b7"/>
-      <stop offset="1" stop-color="#f5c451"/>
-    </linearGradient>
-    <linearGradient id="dashGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0c1f16"/>
-      <stop offset="1" stop-color="#081512"/>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#2dd4bf" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-
-  <rect width="1280" height="380" fill="url(#bgGrad)"/>
-
-  <!-- (a) BANNER-WIDE MOTION: green savings-light sweep across the full width -->
-  <g>
-    <rect x="-220" y="0" width="220" height="380" fill="url(#beamGrad)" opacity="0">
-      <animate attributeName="x" values="-220;1500;-220" dur="8.4s" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values="0;0.5;0" dur="8.4s" repeatCount="indefinite"/>
-    </rect>
+  <rect width="1280" height="380" fill="url(#bg)"/>
+  <circle cx="960" cy="190" r="152" fill="#2dd4bf" opacity="0.07"/>
+  <circle cx="960" cy="190" r="152" fill="none" stroke="#2dd4bf" stroke-width="2" opacity="0.18"/>
+  <rect x="-220" y="0" width="220" height="380" fill="url(#beam)">
+    <animate attributeName="x" values="-220;1300;-220" dur="7s" repeatCount="indefinite"/>
+  </rect>
+  <g transform="translate(960,190)">
+    <circle r="118" fill="#041a17" stroke="#2dd4bf" stroke-width="8"/>
+    <path d="M70,0 L35,61 L-35,61 L-70,0 L-35,-61 L35,-61 Z" fill="#0c3b34" stroke="#2dd4bf" stroke-width="8"/>
+    <line x1="0" y1="-36" x2="0" y2="22" stroke="#fbbf24" stroke-width="9" stroke-linecap="round"/>
+    <path d="M-13,10 L0,28 L13,10 Z" fill="#fbbf24"/>
   </g>
-  <g fill="#a7f3d0">
-    <circle cx="0" cy="110" r="2.2" opacity="0.6">
-      <animate attributeName="cx" values="-20;1320" dur="10s" repeatCount="indefinite"/>
-    </circle>
-    <circle cx="0" cy="290" r="1.8" opacity="0.5">
-      <animate attributeName="cx" values="1320;-20" dur="12s" repeatCount="indefinite"/>
-    </circle>
-  </g>
-
-  <!-- (b) TITLE-SURROUND MOTION: pulsing halo + draw-on underline -->
-  <circle cx="292" cy="128" r="132" fill="url(#haloGrad)">
-    <animate attributeName="r" values="116;144;116" dur="4.5s" repeatCount="indefinite"/>
-    <animate attributeName="opacity" values="0.5;0.85;0.5" dur="4.5s" repeatCount="indefinite"/>
-  </circle>
-
-  <text x="62" y="134" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="54" font-weight="800" fill="url(#titleGrad)">Token_Saver</text>
-  <line x1="64" y1="154" x2="330" y2="154" stroke="#f5c451" stroke-width="4" stroke-linecap="round" stroke-dasharray="270" stroke-dashoffset="270">
-    <animate attributeName="stroke-dashoffset" values="270;0;0;270" keyTimes="0;0.5;0.85;1" dur="6s" repeatCount="indefinite"/>
+  <line x1="72" y1="170" x2="440" y2="170" stroke="#fbbf24" stroke-width="6" stroke-linecap="round" stroke-dasharray="368" stroke-dashoffset="368">
+    <animate attributeName="stroke-dashoffset" values="368;0;0;368" dur="6s" repeatCount="indefinite"/>
   </line>
-  <text x="64" y="188" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="19" font-weight="500" fill="#a7f3d0">SkillForge · 技能精炼台 · 降低无效 Token 开销</text>
-
-  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="15" font-weight="600" fill="#a7f3d0">
-    <rect x="64" y="208" width="88" height="30" rx="15" fill="#103024"/>
-    <text x="84" y="228">格式校验</text>
-    <rect x="168" y="208" width="88" height="30" rx="15" fill="#103024"/>
-    <text x="188" y="228">语义清洗</text>
-    <rect x="272" y="208" width="96" height="30" rx="15" fill="#103024"/>
-    <text x="292" y="228">节省看板</text>
-  </g>
-
-  <!-- HERO MOTIF (right): a savings dashboard with growing compression bars -->
-  <g transform="translate(985,196)">
-    <rect x="20" y="-104" width="190" height="208" rx="14" fill="url(#dashGrad)"/>
-    <rect x="20" y="-104" width="190" height="30" rx="14" fill="#103024"/>
-    <circle cx="40" cy="-89" r="4" fill="#34d399"/>
-    <circle cx="54" cy="-89" r="4" fill="#f5c451"/>
-    <text x="74" y="-84" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="700" fill="#a7f3d0">Token 节省看板</text>
-    <!-- compression bars growing from baseline -->
-    <g transform="translate(48,66)">
-      <g><animateTransform attributeName="transform" type="scale" values="1 0.25;1 1;1 0.25" dur="3.2s" repeatCount="indefinite"/><rect x="0" y="-70" width="20" height="70" rx="4" fill="#34d399"/></g>
-    </g>
-    <g transform="translate(84,66)">
-      <g><animateTransform attributeName="transform" type="scale" values="1 0.4;1 1;1 0.4" dur="3.6s" begin="0.3s" repeatCount="indefinite"/><rect x="0" y="-86" width="20" height="86" rx="4" fill="#10b981"/></g>
-    </g>
-    <g transform="translate(120,66)">
-      <g><animateTransform attributeName="transform" type="scale" values="1 0.55;1 1;1 0.55" dur="3s" begin="0.6s" repeatCount="indefinite"/><rect x="0" y="-98" width="20" height="98" rx="4" fill="#6ee7b7"/></g>
-    </g>
-    <g transform="translate(156,66)">
-      <g><animateTransform attributeName="transform" type="scale" values="1 0.7;1 1;1 0.7" dur="3.4s" begin="0.9s" repeatCount="indefinite"/><rect x="0" y="-110" width="20" height="110" rx="4" fill="#f5c451"/></g>
-    </g>
-    <!-- saving token coin with downward arrow -->
-    <g>
-      <animate attributeName="opacity" values="0.85;1;0.85" dur="3s" repeatCount="indefinite"/>
-      <circle cx="-70" cy="-40" r="26" fill="#10b981"/>
-      <text x="-70" y="-32" font-family="monospace" font-size="18" font-weight="800" fill="#052b1f" text-anchor="middle">∑</text>
-      <path d="M-70,-2 L-70,30 M-82,18 L-70,32 L-58,18" stroke="#f5c451" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    </g>
+  <text x="70" y="150" font-size="60" font-weight="800" fill="url(#title)">Token_Saver</text>
+  <text x="72" y="198" font-size="22" fill="#bdf3e8" opacity="0.9">Prompt 压缩 · Token 成本看板</text>
+  <g font-size="16" font-weight="600">
+    <rect x="72" y="220" width="108" height="34" rx="17" fill="#2dd4bf" opacity="0.18" stroke="#5eead4" stroke-width="2"/>
+    <text x="126" y="242" fill="#d4faf2" text-anchor="middle">压缩</text>
+    <rect x="192" y="220" width="108" height="34" rx="17" fill="#fbbf24" opacity="0.16" stroke="#fbbf24" stroke-width="2"/>
+    <text x="246" y="242" fill="#fde9b0" text-anchor="middle">看板</text>
   </g>
 </svg>
