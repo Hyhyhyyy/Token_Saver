@@ -531,7 +531,61 @@ async function depositRule(pair) {
   }
 }
 
-/* ---------- v2.5 Prompt 简化器（落地默认功能） ---------- */
+/* ---------- v2.6 Prompt 简化器（可多选规则 + 保守/激进预设） ---------- */
+const SIMPLIFY_RULE_IDS = ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","hedging","redundant_adverbs","examples_trim"];
+const SIMPLIFY_PRESETS = {
+  balanced:   { mode: "balanced",   rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines"] },
+  aggressive: { mode: "aggressive", rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","hedging","redundant_adverbs","examples_trim"] },
+};
+
+function getSimplifyState() {
+  const rules = SIMPLIFY_RULE_IDS.filter((id) => {
+    const el = document.querySelector('input[data-rule="' + id + '"]');
+    return el && el.checked;
+  });
+  const active = document.querySelector(".preset.active");
+  const mode = active ? (active.dataset.preset === "aggressive" ? "aggressive" : "balanced") : "balanced";
+  return { rules, mode };
+}
+
+function applySimplifyPreset(name) {
+  const p = SIMPLIFY_PRESETS[name];
+  if (!p) return;
+  SIMPLIFY_RULE_IDS.forEach((id) => {
+    const el = document.querySelector('input[data-rule="' + id + '"]');
+    if (el) el.checked = p.rules.includes(id);
+  });
+  document.querySelectorAll(".preset").forEach((b) => b.classList.toggle("active", b.dataset.preset === name));
+  saveSimplifyState();
+}
+
+function saveSimplifyState() {
+  try { localStorage.setItem("skillforge_simplify_v2_6", JSON.stringify(getSimplifyState())); } catch (e) {}
+}
+
+function loadSimplifyState() {
+  try {
+    const raw = localStorage.getItem("skillforge_simplify_v2_6");
+    if (!raw) return false;
+    const st = JSON.parse(raw);
+    if (st && Array.isArray(st.rules)) {
+      SIMPLIFY_RULE_IDS.forEach((id) => {
+        const el = document.querySelector('input[data-rule="' + id + '"]');
+        if (el) el.checked = st.rules.includes(id);
+      });
+      const cur = getSimplifyState().rules.slice().sort().join(",");
+      for (const [name, p] of Object.entries(SIMPLIFY_PRESETS)) {
+        if (p.rules.slice().sort().join(",") === cur && p.mode === st.mode) {
+          document.querySelectorAll(".preset").forEach((b) => b.classList.toggle("active", b.dataset.preset === name));
+          break;
+        }
+      }
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 function initSimplifier() {
   const ta = $("#simplifyInput");
   if (!ta) return;
@@ -556,6 +610,20 @@ function initSimplifier() {
     };
     reader.readAsText(file);
   });
+  // 预设按钮
+  document.querySelectorAll(".preset").forEach((b) => {
+    b.onclick = () => applySimplifyPreset(b.dataset.preset);
+  });
+  // 任意勾选变化 → 取消 preset 高亮 + 持久化
+  SIMPLIFY_RULE_IDS.forEach((id) => {
+    const el = document.querySelector('input[data-rule="' + id + '"]');
+    if (el) el.addEventListener("change", () => {
+      document.querySelectorAll(".preset").forEach((b) => b.classList.remove("active"));
+      saveSimplifyState();
+    });
+  });
+  // 首次进入：恢复 localStorage，否则默认 保守
+  if (!loadSimplifyState()) applySimplifyPreset("balanced");
   $("#btnSimplify").onclick = doSimplify;
   $("#btnCopySimplify").onclick = () => {
     navigator.clipboard.writeText($("#simplifyResult").value);
@@ -571,13 +639,13 @@ async function doSimplify() {
     return;
   }
   $("#simplifyErr").textContent = "";
-  const mode = (document.querySelector('input[name="simplifyMode"]:checked') || {}).value || "balanced";
+  const { rules, mode } = getSimplifyState();
   $("#btnSimplify").disabled = true;
   $("#btnSimplify").textContent = "简化中…";
   try {
     const r = await api("/api/simplify", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, mode }),
+      body: JSON.stringify({ text, mode, rules }),
     });
     $("#simplifyResult").value = r.simplified_text ?? "";
     $("#simOrigTokens").textContent = r.original_tokens ?? 0;

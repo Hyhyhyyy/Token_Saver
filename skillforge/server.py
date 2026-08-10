@@ -231,7 +231,11 @@ async def simplify(request: Request) -> dict:
         body = {}
     text = body.get("text", "")
     mode = body.get("mode", "balanced")
-    return simplify_prompt(text, mode=mode)
+    # v2.6：可选 rules（类别多选）。非 list 一律兜底 None → 走 PRESETS（P0-3 零回归）。
+    rules = body.get("rules", None)
+    if not isinstance(rules, list):
+        rules = None
+    return simplify_prompt(text, mode=mode, rules=rules)
 
 
 @app.post("/api/track")

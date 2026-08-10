@@ -1,9 +1,16 @@
-"""Prompt 简化器（v2.5 核心新功能）：通用 prompt 文本压缩。
+"""Prompt 简化器（v2.6 重构）：通用 prompt 文本压缩 + 可多选规则配置。
 
-目标：在不破坏语义与代码结构的前提下，去除冗余礼貌用语、合并重复指令、
-删除空列表项、精简冗长角色描述，并保留代码块（```...```）、行内代码、URL
-与技术标识符。token 计数复用 ``skillforge.tokenizer.count_tokens``
-（tiktoken cl100k_base；缺失时回退字符启发式）。
+目标：在不破坏语义与代码结构的前提下，按用户勾选的「规则类别」做无损裁剪。
+保留 v2.5 的全部保护能力（代码块 / 行内代码 / URL / 含「请」安全词冻结）。
+
+设计（见 docs/arch-evo2-6.md）：
+- 规则注册表 ``RULE_REGISTRY`` + 预设 ``PRESETS`` + 单一真源 ``ALL_RULE_IDS``。
+- ``simplify_prompt(text, mode, rules)`` 改为管道：解析 rules/预设 → 保护 →
+  按 ``CANONICAL_ORDER`` 顺序执行启用类别 → 还原 → 统计。
+- **零回归硬指标**：``rules is None`` 时 ``PRESETS`` 逐字等于 v2.5 行为
+  （balanced/aggressive 输出与旧版字符串相等）。新类别（meta_comment / hedging /
+  redundant_adverbs / examples_trim）仅当用户显式勾选（下发 ``rules``）时生效，
+  不进 ``PRESETS``，故老 API 调用方行为不变。
 
 零新增 pip 依赖：仅 Python 标准库 + 现有 tokenizer。
 """
@@ -14,7 +21,36 @@ import re
 from .tokenizer import count_tokens
 
 # --------------------------------------------------------------------------- #
-# 填充词表（按模式分档）
+# 规则 id 单一真源（导出，前端 checkbox 与之严格对应）
+# --------------------------------------------------------------------------- #
+ALL_RULE_IDS: list[str] = [
+    "politeness", "role_prefix", "empty_items", "duplicate_lines",
+    "blank_lines", "meta_comment", "hedging", "redundant_adverbs", "examples_trim",
+]
+
+# 类别执行顺序：前 5 位与 v2.5 执行顺序逐字一致，保障零回归（P0-3）。
+CANONICAL_ORDER: list[str] = [
+    "empty_items", "duplicate_lines", "blank_lines",
+    "politeness", "role_prefix",
+    "meta_comment", "hedging", "redundant_adverbs", "examples_trim",
+]
+
+# 预设 ↔ rules 映射（仅用于 ``rules is None`` 的向后兼容路径）。
+# 注意：必须逐字等于 v2.5（不含任何新类别），否则破坏 P0-3 零回归。
+# 新类别通过前端默认勾选 + 显式下发 rules 生效，不在此处。
+PRESETS: dict[str, list[str]] = {
+    "balanced": [
+        "politeness", "role_prefix", "empty_items",
+        "duplicate_lines", "blank_lines",
+    ],
+    "aggressive": [
+        "politeness", "role_prefix", "empty_items",
+        "duplicate_lines", "blank_lines",
+    ],
+}
+
+# --------------------------------------------------------------------------- #
+# 填充词表（按模式分档，逐字沿用 v2.5）
 # --------------------------------------------------------------------------- #
 # 含「请」的安全词（被误删会破坏语义，如 申请/请求/请教）。先整体保护再还原。
 _PROTECT_WORDS = [
@@ -84,9 +120,49 @@ _PROTECT_RE = re.compile(
 _PROTECT_TOKEN_RE = re.compile(r"\x00P(\d+)\x00")
 _KEEP_TOKEN_RE = re.compile(r"\x00K(\d+)\x00")
 
+# --------------------------------------------------------------------------- #
+# v2.6 新增规则词典（仅当用户显式勾选时生效；不在 PRESETS 中）
+# --------------------------------------------------------------------------- #
+# 元评论 / 过渡句：删除后几乎不改变任务语义（仅当用户勾选 meta_comment）。
+_META_COMMENT = [
+    "需要注意的是", "总的来讲", "总的来说", "简单而言", "简单来说",
+    "简而言之", "换句话说", "换言之", "我会帮你", "让我来帮你",
+    "让我来", "当然，", "当然。", "当然 ", "此外", "另外",
+    "除此之外", "综上所述", "总而言之", "总的来看", "说白了",
+    "老实说", "不瞒你说", "顺便说一下", "顺带一提", "话说回来",
+    "回到正题", "补充一下", "多说一句", "再补充一点",
+]
+
+# 弱语气 / 不确定性词（带否定前瞻，避免「不可能→不」「不完全→不」）。
+_HEDGING = [
+    "可能", "也许", "大概", "或许", "似乎", "恐怕", "某种程度上",
+    "一般来说", "不妨", "大致", "约莫", "说不定", "没准",
+]
+
+# 冗余副词 / 强调（带否定前瞻，避免误伤「不完全」等）。
+_REDUNDANT_ADV = [
+    "非常", "十分", "极其", "彻底", "完全", "绝对", "特别",
+    "相当", "真的", "实在", "蛮", "超",
+]
+
+# 示例引导词（examples_trim 触发；英文大小写不敏感）。
+_EXAMPLE_LEAD_WORDS = [
+    "例如", "例如：", "比如", "比如：", "举个例子", "举个例", "诸如",
+    "譬如", "示例如下", "例子如下", "具体如下",
+    "e.g.", "for example", "for instance", "such as",
+]
+
+# 否定前瞻（多长度固定宽度，覆盖 1~3 字内的否定辖域）：
+# 既防「不完全」(紧贴前一字)，也防「不可能完全 / 并没有完全」(隔 1~2 字) 这类结构，
+# 避免误删被否定保护的强调 / 弱语气副词（redundant_adverbs / hedging）。
+_NEG_CHARS = "不没别未无莫非勿"
+_NEG_LOOKBEHIND = "".join(
+    f"(?<!{c})(?<!{c}.)(?<!{c}..)" for c in _NEG_CHARS
+)
+
 
 # --------------------------------------------------------------------------- #
-# 内部工具
+# 内部工具（逐字沿用 v2.5）
 # --------------------------------------------------------------------------- #
 def _protect(text: str, store: list[str]) -> str:
     """把需保护的片段（代码块/URL/行内代码）替换为占位符。"""
@@ -119,11 +195,7 @@ def _restore(text: str, store: list[str]) -> str:
 
 
 def _norm_line(line: str) -> str:
-    """归一化一行用于去重比较：去空白、去标点、小写。
-
-    说明：Python 的 ``\\w`` 含 CJK，故 ``[^\\w]`` 之外的 CJK 字面会保留，
-    仅去除中英文标点与空白，使「近 identical」的指令可比。
-    """
+    """归一化一行用于去重比较：去空白、去标点、小写。"""
     s = line.strip().lower()
     s = re.sub(r"\s+", "", s)
     s = re.sub(r"[\u3000-\u303f\uff00-\uffef\W_]", "", s)
@@ -143,7 +215,6 @@ def _collapse_blank_lines(text: str) -> str:
         else:
             out.append(line.strip())
             prev_blank = False
-    # 去除首尾多余空行
     while out and out[0] == "":
         out.pop(0)
     while out and out[-1] == "":
@@ -152,10 +223,7 @@ def _collapse_blank_lines(text: str) -> str:
 
 
 def _simplify_role(line: str, aggressive: bool) -> tuple[str, bool]:
-    """行首冗长角色描述前缀精简。仅当整行以角色前缀开头时替换。
-
-    balanced 与 aggressive 共用同一组前缀表（角色精简本身即安全动作）。
-    """
+    """行首冗长角色描述前缀精简（v2.5 原逻辑，逐字保留）。"""
     stripped = line.lstrip()
     for prefix, repl in _ROLE_PREFIXES:
         if stripped.startswith(prefix):
@@ -163,33 +231,255 @@ def _simplify_role(line: str, aggressive: bool) -> tuple[str, bool]:
     return line, False
 
 
+def _is_protect_token(line: str) -> bool:
+    """该整行是否就是某个保护占位符（代码块/URL/行内代码被冻结为单 token）。"""
+    s = line.strip()
+    return bool(re.fullmatch(r"\x00[PK]\d+\x00", s))
+
+
+def _is_lead_line(line: str) -> bool:
+    """判断该行是否为示例引导行（含任意引导词）。"""
+    low = line.lower()
+    for w in _EXAMPLE_LEAD_WORDS:
+        if w.lower() in low:
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# 规则函数（统一签名 fn(work, aggressive_like) -> (work, count)）
+# 除 politeness / role_prefix 外，其余忽略 aggressive_like。
+# --------------------------------------------------------------------------- #
+def _rule_politeness(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """礼貌/冗余填充词移除（v2.5 原逻辑；aggressive_like 控制单字「请」）。"""
+    cn_fillers = list(_CN_FILLERS_BALANCED)
+    en_fillers = list(_EN_FILLERS_BALANCED)
+    if aggressive_like:
+        cn_fillers += _CN_FILLERS_AGGRESSIVE
+        en_fillers += _EN_FILLERS_AGGRESSIVE
+
+    filler_removed = 0
+    for phrase in en_fillers:
+        cnt = work.lower().count(phrase)
+        if cnt:
+            work = re.sub(r"(?i)" + re.escape(phrase), "", work)
+            filler_removed += cnt
+    for phrase in cn_fillers:
+        cnt = work.count(phrase)
+        if cnt:
+            work = work.replace(phrase, "")
+            filler_removed += cnt
+    if aggressive_like:
+        cnt = len(re.findall(r"请(?=[一-鿿])", work))
+        if cnt:
+            work = re.sub(r"请(?=[一-鿿])", "", work)
+            filler_removed += cnt
+    return work, filler_removed
+
+
+def _rule_role_prefix(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """冗长角色前缀精简（v2.5 原逻辑；aggressive_like 控制 5.b 行内兜底）。"""
+    role_hits = 0
+    out_lines = []
+    for line in work.split("\n"):
+        new_line, hit = _simplify_role(line, aggressive_like)
+        if hit:
+            role_hits += 1
+        out_lines.append(new_line)
+    work = "\n".join(out_lines)
+
+    if aggressive_like:
+        new_out: list[str] = []
+        for line in out_lines:
+            for prefix in _ROLE_PREFIX_CN:
+                if prefix in line:
+                    line = line.replace(prefix, "")
+                    role_hits += 1
+            new_out.append(line)
+        out_lines = new_out
+        work = "\n".join(out_lines)
+    return work, role_hits
+
+
+def _rule_empty_items(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """空列表项 / 空编号移除。"""
+    lines = work.split("\n")
+    kept: list[str] = []
+    removed = 0
+    for line in lines:
+        if _EMPTY_BULLET_RE.match(line):
+            removed += 1
+            continue
+        kept.append(line)
+    return "\n".join(kept), removed
+
+
+def _rule_duplicate_lines(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """重复 / 近 identical 指令合并（归一化后去重）。"""
+    lines = work.split("\n")
+    kept: list[str] = []
+    seen_norm: dict[str, int] = {}
+    removed = 0
+    for line in lines:
+        norm = _norm_line(line)
+        if norm:
+            if norm in seen_norm:
+                removed += 1
+                continue
+            seen_norm[norm] = 1
+        kept.append(line)
+    return "\n".join(kept), removed
+
+
+def _rule_blank_lines(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """折叠连续空行为至多 1 个。"""
+    new = _collapse_blank_lines(work)
+    return new, 0
+
+
+def _rule_meta_comment(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """元评论 / 过渡句短语级移除（不破坏主干）。"""
+    cnt = 0
+    for phrase in _META_COMMENT:
+        c = work.count(phrase)
+        if c:
+            work = work.replace(phrase, "")
+            cnt += c
+    return work, cnt
+
+
+def _rule_hedging(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """弱语气 / 不确定性词移除（带否定前瞻，避免误伤「不可能/不完全/并没有完全」）。"""
+    cnt = 0
+    for phrase in _HEDGING:
+        pattern = _NEG_LOOKBEHIND + re.escape(phrase)
+        matches = re.findall(pattern, work)
+        if matches:
+            work = re.sub(pattern, "", work)
+            cnt += len(matches)
+    return work, cnt
+
+
+def _rule_redundant_adverbs(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """冗余副词 / 强调移除（带否定前瞻，避免误伤「不完全/并没有完全」等）。"""
+    cnt = 0
+    for phrase in _REDUNDANT_ADV:
+        pattern = _NEG_LOOKBEHIND + re.escape(phrase)
+        matches = re.findall(pattern, work)
+        if matches:
+            work = re.sub(pattern, "", work)
+            cnt += len(matches)
+    return work, cnt
+
+
+def _rule_examples_trim(work: str, aggressive_like: bool) -> tuple[str, int]:
+    """过长示例压缩（默认关闭，仅显式勾选时生效）。
+
+    识别「示例引导词」之后的连续非空行块；超阈值（≥4 行 或 ≥200 字符）折叠为
+    「前 3 条真实示例行」+ 追加标注「（示例已压缩，共 X 行）」。
+
+    无损保证：受保护 token 行（代码块 / URL / 行内代码）永远原样保留；若块内含受
+    保护内容，则全部真实示例行也一并保留（绝不因代码块占用「前 3 行」名额而把
+    用户真实内容挤出丢弃）。
+    """
+    lines = work.split("\n")
+    out: list[str] = []
+    i = 0
+    blocks = 0
+    while i < len(lines):
+        line = lines[i]
+        if _is_lead_line(line):
+            block: list[str] = []
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != "":
+                block.append(lines[j])
+                j += 1
+            total = len(block)
+            chars = sum(len(x) for x in block)
+            if total >= 4 or chars >= 200:
+                has_protect = any(_is_protect_token(bl) for bl in block)
+                out.append(line)
+                if has_protect:
+                    # 含受保护内容（代码块 / URL / 行内代码）→ 无损保留全部行
+                    out += block
+                else:
+                    # 纯文本示例：仅保留前 3 条真实行，其余压缩
+                    out += block[:3]
+                out.append(f"（示例已压缩，共 {total} 行）")
+                blocks += 1
+                i = j
+            else:
+                out.append(line)
+                out += block
+                i = j
+        else:
+            out.append(line)
+            i += 1
+    return "\n".join(out), blocks
+
+
+# 规则注册表：id -> fn（default_in_presets 仅供文档/自检）
+RULE_REGISTRY: dict[str, dict] = {
+    "politeness":        {"fn": _rule_politeness,        "default_in_presets": True},
+    "role_prefix":       {"fn": _rule_role_prefix,       "default_in_presets": True},
+    "empty_items":       {"fn": _rule_empty_items,       "default_in_presets": True},
+    "duplicate_lines":   {"fn": _rule_duplicate_lines,   "default_in_presets": True},
+    "blank_lines":       {"fn": _rule_blank_lines,       "default_in_presets": True},
+    "meta_comment":      {"fn": _rule_meta_comment,      "default_in_presets": False},
+    "hedging":           {"fn": _rule_hedging,           "default_in_presets": False},
+    "redundant_adverbs": {"fn": _rule_redundant_adverbs, "default_in_presets": False},
+    "examples_trim":     {"fn": _rule_examples_trim,     "default_in_presets": False},
+}
+
+
+def _resolve_rule_ids(rules, mode: str) -> tuple[list[str], str, bool]:
+    """解析规则集与 aggressive_like（§3.3）。
+
+    返回 (ordered_rule_ids, mode_used, aggressive_like)。
+    - rules is None → 用 PRESETS[mode]，aggressive_like = (mode == "aggressive")。
+    - rules 为 list → 仅留合法 id（∈ ALL_RULE_IDS）、去重、按 CANONICAL_ORDER 排序；
+      空集合（全非法/空数组）→ 保底 ["blank_lines"]（保护 + 空行折叠）。
+    """
+    aggressive_like = (mode == "aggressive")
+    if rules is None:
+        ids = PRESETS.get(mode, PRESETS["balanced"])
+        return ids, mode, aggressive_like
+
+    valid = [r for r in rules if r in ALL_RULE_IDS]
+    if not valid:
+        return ["blank_lines"], mode, aggressive_like
+    ordered = sorted(set(valid), key=lambda x: CANONICAL_ORDER.index(x))
+    return ordered, mode, aggressive_like
+
+
+def _tag(change: str, category: str, explicit: bool) -> str:
+    """仅当显式下发 rules 时附加 [category] 标签（保障 P0-3 预设模式纯文本格式）。"""
+    return change if not explicit else f"{change} [{category}]"
+
+
 # --------------------------------------------------------------------------- #
 # 主入口
 # --------------------------------------------------------------------------- #
-def simplify_prompt(text: str, mode: str = "balanced") -> dict:
+def simplify_prompt(text: str, mode: str = "balanced", rules: list[str] | None = None) -> dict:
     """简化通用 prompt 文本，返回含 token 节省统计的 dict。
 
     参数:
         text: 原始 prompt 文本。
-        mode: ``"balanced"``（保守）或 ``"aggressive"``（更激进地去冗余）。
+        mode: ``"balanced"``（保守）或 ``"aggressive"``（激进）。
+            同时承载 ``aggressive_like`` 语义（仅影响 role_prefix/politeness 的
+            原 aggressive 专属子步骤：行内角色兜底 5.b / 单字「请」）。
+        rules: 可选规则类别集合（元素为 ``ALL_RULE_IDS``）。
+            - ``None`` → 按 ``mode`` 展开 ``PRESETS``（与 v2.5 逐字一致，P0-3）。
+            - ``[]`` / 全非法 → 保底 ``["blank_lines"]``（仅保护 + 空行折叠）。
+            - 合法非空 → 以该集合为准（可独立开关每类），不强制 ``blank_lines``。
 
-    返回 dict 键：
+    返回 dict 键（结构不变，向后兼容）：
         original_text, simplified_text, original_tokens, simplified_tokens,
         tokens_saved, savings_pct, changes。
-
-    简化规则（通用 prompt，非 SKILL.md 专属）：
-        - 去除首尾空白、折叠连续空行为至多 1 个；
-        - 移除/削弱中英文礼貌填充词；
-        - 合并同一 prompt 内重复（或近 identical）的指令为一条；
-        - 删除空列表项 / 空编号项；
-        - 在安全前提下精简冗长角色描述；
-        - 保留代码块（```...```）、行内代码、URL 与技术标识符；
-        - ``mode="aggressive"`` 在 balanced 基础上做更强裁剪。
     """
     original = text if text is not None else ""
     original_tokens = count_tokens(original)
 
-    # 空输入：优雅返回全零 / 空串
     if not original.strip():
         return {
             "original_text": "",
@@ -201,102 +491,68 @@ def simplify_prompt(text: str, mode: str = "balanced") -> dict:
             "changes": [],
         }
 
-    aggressive = (mode == "aggressive")
-    changes: list[str] = []
+    explicit = rules is not None
+    rule_ids, mode_used, aggressive_like = _resolve_rule_ids(rules, mode)
 
     # 1) 保护：代码块 / URL / 行内代码 / 含填充字安全词
     protected: list[str] = []
     work = _protect(original, protected)
     work = _protect_words(work, protected, _PROTECT_WORDS)
 
-    # 2) 行级处理：拆行 → 删空列表项 → 合并重复行
-    lines = work.split("\n")
-    kept_lines: list[str] = []
-    empty_bullets = 0
-    seen_norm: dict[str, int] = {}
-    dup_removed = 0
-    for line in lines:
-        if _EMPTY_BULLET_RE.match(line):
-            empty_bullets += 1
-            continue
-        norm = _norm_line(line)
-        if norm:  # 仅非空行参与去重比较
-            if norm in seen_norm:
-                dup_removed += 1
-                continue
-            seen_norm[norm] = 1
-        kept_lines.append(line)
-    work = "\n".join(kept_lines)
+    changes: list[str] = []
 
-    if empty_bullets:
-        changes.append(f"删除 {empty_bullets} 个空列表项")
-    if dup_removed:
-        changes.append(f"合并 {dup_removed} 条重复指令")
+    # 2) 空列表项 + 重复指令（顺序与 v2.5 一致；各自可独立关闭）
+    if "empty_items" in rule_ids:
+        work, n = _rule_empty_items(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"删除 {n} 个空列表项", "empty_items", explicit))
+    if "duplicate_lines" in rule_ids:
+        work, n = _rule_duplicate_lines(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"合并 {n} 条重复指令", "duplicate_lines", explicit))
 
-    # 3) 折叠连续空行（≤1 个）并清理每行首尾空白
-    work = _collapse_blank_lines(work)
+    # 3) 空行折叠（首折，与 v2.5 顺序一致）
+    if "blank_lines" in rule_ids:
+        work = _rule_blank_lines(work, aggressive_like)[0]
 
-    # 4) 移除填充词（中文 + 英文）
-    cn_fillers = list(_CN_FILLERS_BALANCED)
-    en_fillers = list(_EN_FILLERS_BALANCED)
-    if aggressive:
-        cn_fillers += _CN_FILLERS_AGGRESSIVE
-        en_fillers += _EN_FILLERS_AGGRESSIVE
+    # 4) 礼貌/冗余填充词
+    if "politeness" in rule_ids:
+        work, n = _rule_politeness(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"移除 {n} 处礼貌/冗余填充词", "politeness", explicit))
 
-    filler_removed = 0
-    # 英文：词级（大小写不敏感）整体移除
-    for phrase in en_fillers:
-        cnt = work.lower().count(phrase)
-        if cnt:
-            work = re.sub(r"(?i)" + re.escape(phrase), "", work)
-            filler_removed += cnt
-    # 中文：短语移除
-    for phrase in cn_fillers:
-        cnt = work.count(phrase)
-        if cnt:
-            work = work.replace(phrase, "")
-            filler_removed += cnt
-    # 中文单字「请」：仅当它后接汉字时移除（安全词已先行保护）
-    if aggressive:
-        cnt = len(re.findall(r"请(?=[一-鿿])", work))
-        if cnt:
-            work = re.sub(r"请(?=[一-鿿])", "", work)
-            filler_removed += cnt
+    # 5) 冗长角色前缀精简
+    if "role_prefix" in rule_ids:
+        work, n = _rule_role_prefix(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"精简 {n} 处角色描述", "role_prefix", explicit))
 
-    if filler_removed:
-        changes.append(f"移除 {filler_removed} 处礼貌/冗余填充词")
+    # 6) v2.6 新增类别（仅显式勾选时进入；不在 PRESETS，故不影响零回归）
+    if "meta_comment" in rule_ids:
+        work, n = _rule_meta_comment(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"移除 {n} 处元评论/过渡句", "meta_comment", explicit))
+    if "hedging" in rule_ids:
+        work, n = _rule_hedging(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"移除 {n} 处弱语气词", "hedging", explicit))
+    if "redundant_adverbs" in rule_ids:
+        work, n = _rule_redundant_adverbs(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"移除 {n} 处冗余副词", "redundant_adverbs", explicit))
+    if "examples_trim" in rule_ids:
+        work, n = _rule_examples_trim(work, aggressive_like)
+        if n:
+            changes.append(_tag(f"压缩 {n} 处过长示例", "examples_trim", explicit))
 
-    # 5) 精简冗长角色描述（仅行首）
-    role_hits = 0
-    out_lines = []
-    for line in work.split("\n"):
-        new_line, hit = _simplify_role(line, aggressive)
-        if hit:
-            role_hits += 1
-        out_lines.append(new_line)
-    work = "\n".join(out_lines)
-
-    # 5.b) aggressive：兜底移除行内（非行首）残留的中文角色前缀
-    if aggressive:
-        new_out: list[str] = []
-        for line in out_lines:
-            for prefix in _ROLE_PREFIX_CN:
-                if prefix in line:
-                    line = line.replace(prefix, "")
-                    role_hits += 1
-            new_out.append(line)
-        out_lines = new_out
-
-    work = "\n".join(out_lines)
-
-    if role_hits:
-        changes.append(f"精简 {role_hits} 处角色描述")
-
-    # 6) 清理：折叠空行 + 去首尾空白 + 还原占位符
-    work = _collapse_blank_lines(work).strip()
+    # 7) 还原（先放回归位保护片段，再按 blank_lines 是否启用决定折叠策略）
     work = _restore(work, protected)
-    # 还原后可能残留多余空行，再折叠一次
-    work = _collapse_blank_lines(work).strip()
+    if "blank_lines" in rule_ids:
+        # 启用：折叠连续空行 + 行首尾空白清理（v2.5 默认行为）
+        work = _collapse_blank_lines(work).strip()
+    else:
+        # 显式关闭：仅整体 strip，保留内部空行（architect U7 / PRD P0-3 之外的行为）
+        work = work.strip()
 
     simplified = work
     simplified_tokens = count_tokens(simplified)

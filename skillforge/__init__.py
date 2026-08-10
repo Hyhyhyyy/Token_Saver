@@ -4,4 +4,4 @@
 引导 Agent 更精准地调用技能，降低 AI 工作台每轮对话的无效 Token 开销。
 """
 
-__version__ = "2.5.0-evo"
+__version__ = "2.6.0-evo"

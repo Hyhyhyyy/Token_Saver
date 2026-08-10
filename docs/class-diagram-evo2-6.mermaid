@@ -1,0 +1,41 @@
+classDiagram
+    class SimplifierConfig {
+        +list~str~ ALL_RULE_IDS
+        +dict PRESETS
+        +list~str~ CANONICAL_ORDER
+        +dict RULE_REGISTRY
+    }
+    class RuleEntry {
+        +str id
+        +str label
+        +RuleFn fn
+        +bool default_in_presets
+    }
+    class SimplifyPipeline {
+        +simplify_prompt(text: str, mode: str, rules: list~str~|None) dict
+        -_resolve_rule_ids(rules, mode) list~str~
+        -_apply_rules(work: str, rule_ids: list~str~, aggressive_like: bool) (str, list~str~)
+    }
+    class Protect {
+        +_protect(text: str, store: list~str~) str
+        +_protect_words(text: str, store: list~str~, words: list~str~) str
+        +_restore(text: str, store: list~str~) str
+    }
+    class RuleFns {
+        +_rule_politeness(work, aggressive_like) (str, int)
+        +_rule_role_prefix(work, aggressive_like) (str, int)
+        +_rule_empty_items(work, aggressive_like) (str, int)
+        +_rule_duplicate_lines(work, aggressive_like) (str, int)
+        +_rule_blank_lines(work, aggressive_like) (str, int)
+        +_rule_meta_comment(work, aggressive_like) (str, int)
+        +_rule_hedging(work, aggressive_like) (str, int)
+        +_rule_redundant_adverbs(work, aggressive_like) (str, int)
+        +_rule_examples_trim(work, aggressive_like) (str, int)
+    }
+
+    SimplifierConfig "1" *-- "9" RuleEntry : RULE_REGISTRY
+    SimplifyPipeline ..> SimplifierConfig : 读 PRESETS / CANONICAL_ORDER
+    SimplifyPipeline ..> Protect : 保护 / 还原
+    SimplifyPipeline ..> RuleFns : 按 CANONICAL_ORDER 调度
+    RuleEntry "1" *-- "1" RuleFns : fn 指向
+    Protect ..> RuleFns : 规则在保护之后、还原之前作用

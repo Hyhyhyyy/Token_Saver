@@ -236,6 +236,20 @@ body::after {
 .err { color: var(--red); font-size: 12px; }
 .btn:disabled { opacity: .6; cursor: progress; }
 
+/* v2.6 · 简化器多选规则 + 预设 */
+.simplify-options { margin-top: 14px; }
+.preset-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+.preset { background: var(--panel-solid); border: 1px solid var(--border); border-radius: 9px; color: var(--text); padding: 8px 14px; font-size: 13px; cursor: pointer; transition: all .18s ease; }
+.preset:hover { border-color: var(--primary-dim); }
+.preset.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); box-shadow: 0 0 12px rgba(52,224,200,0.25); }
+.rule-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) { .rule-groups { grid-template-columns: 1fr; } }
+.rule-group { background: rgba(13,21,33,0.5); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; }
+.rg-title { font-size: 12px; color: var(--primary); margin-bottom: 8px; letter-spacing: .5px; font-weight: 700; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; user-select: none; padding: 4px 0; }
+.chk input { accent-color: var(--primary); width: 15px; height: 15px; }
+.note.small { font-size: 11px; color: var(--muted); margin-top: 0; }
+
 /* Toast */
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(12px); opacity: 0;
   background: rgba(7, 11, 18, 0.95); color: var(--primary); padding: 10px 18px; border-radius: 10px; font-size: 13px;

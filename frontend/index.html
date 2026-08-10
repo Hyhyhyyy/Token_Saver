@@ -86,13 +86,35 @@
     <main class="detail" style="width:100%">
       <div class="card">
         <h3>Prompt 简化器 · 一键压缩你的提示词</h3>
-        <p class="note">粘贴或拖拽 .txt 文件到下方文本框，选择压缩强度，点击「一键简化」即可去除冗余礼貌用语、合并重复指令、保留代码块与 URL，并给出 token 节省统计。</p>
+        <p class="note">粘贴或拖拽 .txt 文件到下方文本框，<b>勾选你想去掉的内容</b>（可自由组合），点击「一键简化」即可去除冗余、合并重复指令、保留代码块与 URL，并给出 token 节省统计。变更列表会标注每条变更所属的规则类别。</p>
         <textarea id="simplifyInput" class="simplify-input" placeholder="粘贴 prompt 文本，或拖拽 .txt 文件到此处"></textarea>
-        <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px;align-items:center">
-          <label class="radio"><input type="radio" name="simplifyMode" value="balanced" checked> 均衡</label>
-          <label class="radio"><input type="radio" name="simplifyMode" value="aggressive"> 激进</label>
-          <button class="btn" id="btnSimplify">⚡ 一键简化</button>
-          <span id="simplifyErr" class="err"></span>
+        <div class="simplify-options">
+          <div class="preset-row">
+            <button type="button" class="btn preset" data-preset="balanced" id="presetBalanced">🛡 保守（默认）</button>
+            <button type="button" class="btn preset" data-preset="aggressive" id="presetAggressive">🔥 激进</button>
+            <span class="note small">保守=安全无损（v2.5 等价）；激进=更强压缩（进阶精简 + 激进子步骤）</span>
+          </div>
+          <div class="rule-groups">
+            <div class="rule-group">
+              <div class="rg-title">基础裁剪（默认启用）</div>
+              <label class="chk"><input type="checkbox" data-rule="politeness"> 礼貌 / 冗余填充词</label>
+              <label class="chk"><input type="checkbox" data-rule="role_prefix"> 冗长角色描述</label>
+              <label class="chk"><input type="checkbox" data-rule="empty_items"> 空列表项</label>
+              <label class="chk"><input type="checkbox" data-rule="duplicate_lines"> 重复指令</label>
+              <label class="chk"><input type="checkbox" data-rule="blank_lines"> 空行折叠</label>
+            </div>
+            <div class="rule-group">
+              <div class="rg-title">进阶精简（可选）</div>
+              <label class="chk"><input type="checkbox" data-rule="meta_comment"> 元评论 / 过渡句</label>
+              <label class="chk"><input type="checkbox" data-rule="hedging"> 弱语气词</label>
+              <label class="chk"><input type="checkbox" data-rule="redundant_adverbs"> 冗余副词</label>
+              <label class="chk"><input type="checkbox" data-rule="examples_trim"> 过长示例压缩</label>
+            </div>
+          </div>
+          <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px;align-items:center">
+            <button class="btn" id="btnSimplify">⚡ 一键简化</button>
+            <span id="simplifyErr" class="err"></span>
+          </div>
         </div>
       </div>
       <div id="simplifyOutput" class="card hidden" style="margin-top:16px">

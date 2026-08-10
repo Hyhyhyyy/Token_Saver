@@ -1,0 +1,24 @@
+sequenceDiagram
+    actor U as 用户
+    participant F as 前端 doSimplify
+    participant API as /api/simplify (server.py)
+    participant S as simplify_prompt (引擎)
+    participant R as RULE_REGISTRY 规则函数
+    participant P as _protect / _restore
+
+    U->>F: 粘贴 prompt，勾选规则 / 点预设
+    F->>F: 收集 checked rule ids → rules[]；记录 mode（预设语义）
+    F->>API: POST /api/simplify {text, rules, mode}
+    API->>S: simplify_prompt(text, mode, rules)
+    S->>S: 解析 rules/预设 → rule_ids + aggressive_like（§3.3）
+    S->>P: _protect + _protect_words（冻结代码/URL/行内代码/安全词）
+    loop 按 CANONICAL_ORDER 执行启用类别
+        S->>R: _rule_<id>(work, aggressive_like) → (work, count)
+        R-->>S: 累积 changes 文案
+    end
+    S->>P: _restore（还原占位符）
+    S->>S: 统计 original/simplified tokens、savings_pct
+    S-->>API: dict{original_text, simplified_text, ..., changes}
+    API-->>F: 原样返回 dict
+    F->>F: 渲染结果 / 4 项统计 / 变更日志；写 localStorage
+    F-->>U: 展示简化结果与节省
