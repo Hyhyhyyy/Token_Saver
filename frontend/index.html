@@ -92,7 +92,7 @@
           <div class="preset-row">
             <button type="button" class="btn preset" data-preset="balanced" id="presetBalanced">🛡 保守（默认）</button>
             <button type="button" class="btn preset" data-preset="aggressive" id="presetAggressive">🔥 激进</button>
-            <span class="note small">保守=安全无损（v2.5 等价）；激进=更强压缩（进阶精简 + 激进子步骤）</span>
+            <span class="note small">保守=默认更强（已含逻辑词/语气词过滤）；激进=更强压缩（进阶精简全开 + 激进子步骤）</span>
           </div>
           <div class="rule-groups">
             <div class="rule-group">
@@ -106,6 +106,8 @@
             <div class="rule-group">
               <div class="rg-title">进阶精简（可选）</div>
               <label class="chk"><input type="checkbox" data-rule="meta_comment"> 元评论 / 过渡句</label>
+              <label class="chk"><input type="checkbox" data-rule="logical_connector"> 逻辑 / 过渡连接词<span class="chk-hint">（因此/所以/然而/首先…）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="filler_particles"> 句末语气助词<span class="chk-hint">（啊/呢/吧/嘛…；保留「吗」）</span></label>
               <label class="chk"><input type="checkbox" data-rule="hedging"> 弱语气词</label>
               <label class="chk"><input type="checkbox" data-rule="redundant_adverbs"> 冗余副词</label>
               <label class="chk"><input type="checkbox" data-rule="examples_trim"> 过长示例压缩</label>

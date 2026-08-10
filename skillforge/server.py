@@ -232,6 +232,9 @@ async def simplify(request: Request) -> dict:
     text = body.get("text", "")
     mode = body.get("mode", "balanced")
     # v2.6：可选 rules（类别多选）。非 list 一律兜底 None → 走 PRESETS（P0-3 零回归）。
+    # evo2-7 契约：rules=None 时后端 explicit=False，仅 5 基础类且逐字等于 v2.5；
+    # 新类别 logical_connector / filler_particles 永不进 PRESETS，仅当用户显式下发
+    # rules（非空 list）时生效（explicit=True）。本分支无逻辑改动。
     rules = body.get("rules", None)
     if not isinstance(rules, list):
         rules = None

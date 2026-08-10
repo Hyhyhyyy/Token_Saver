@@ -1,0 +1,98 @@
+classDiagram
+    direction TB
+
+    class PromptSimplifier {
+        +simplify_prompt(text, mode, rules) dict
+        -explicit : bool
+        -rule_ids : list~str~
+        -aggressive_like : bool
+        +_protect(text, store) str
+        +_protect_words(text, store, words) str
+        +_restore(text, store) str
+    }
+
+    class RuleRegistry {
+        <<singleton>>
+        +ALL_RULE_IDS : list~str~  %% +2: logical_connector, filler_particles
+        +CANONICAL_ORDER : list~str~
+        +PRESETS : dict  %% 不变，仅 5 基础类
+        +RULE_REGISTRY : dict
+    }
+
+    class RuleContext {
+        <<dataclass>>
+        +aggressive_like : bool
+        +explicit : bool
+    }
+
+    class RuleFn {
+        <<interface>>
+        +__call__(work, aggressive_like, explicit) (str, int)
+    }
+
+    class PolitenessRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -仅 explicit 叠加 _CN_FILLERS_EXPANDED
+        -aggressive_like or explicit 删单字请
+    }
+    class LogicalConnectorRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -局部\x01K\x01 保护有序列表序列词
+        -否定前瞻移除连接词
+        -排除 _CONDITIONAL_MARKERS
+    }
+    class FillerParticlesRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -仅句末移除语气词
+        -否定前瞻；排除吗
+    }
+    class HedgingRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -_HEDGING 强化（多字安全词）
+    }
+    class MetaCommentRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -保持不变
+    }
+    class OtherRules {
+        +role_prefix / empty_items / duplicate_lines / blank_lines / redundant_adverbs / examples_trim
+    }
+
+    class Lexicons {
+        <<const module>>
+        +_LOGICAL_CONNECTORS : list~str~  %% 排除 _META_COMMENT 成员
+        +_FILLER_PARTICLES : list~str~    %% 不含 吗
+        +_CN_FILLERS_EXPANDED : list~str~
+        +_CONDITIONAL_MARKERS : list~str~ %% 硬排除，不入连接词
+        +_HEDGING : list~str~
+        +_META_COMMENT : list~str~        %% 不变
+        +_NEG_LOOKBEHIND : str
+        +_ORDERED_LIST_LINE_RE : Pattern
+    }
+
+    class ProtectStore {
+        +items : list~str~
+        +P_token : \x00P~n~\x00
+        +K_token : \x00K~n~\x00
+        +local_sentinel : \x01K~n~\x01  %% 规则内局部，隔离外层
+    }
+
+    PromptSimplifier ..> RuleRegistry : 查 ALL_RULE_IDS/CANONICAL_ORDER
+    PromptSimplifier ..> RuleContext : 计算 explicit/aggressive_like
+    PromptSimplifier ..> ProtectStore : protect/restore
+    RuleRegistry "1" *-- "11" RuleFn : 注册
+    RuleFn <|-- PolitenessRule
+    RuleFn <|-- LogicalConnectorRule
+    RuleFn <|-- FillerParticlesRule
+    RuleFn <|-- HedgingRule
+    RuleFn <|-- MetaCommentRule
+    RuleFn <|-- OtherRules
+
+    PolitenessRule ..> Lexicons : 读 _CN_FILLERS_EXPANDED
+    LogicalConnectorRule ..> Lexicons : 读 _LOGICAL_CONNECTORS/_CONDITIONAL_MARKERS/_ORDERED_LIST_LINE_RE/_NEG_LOOKBEHIND
+    FillerParticlesRule ..> Lexicons : 读 _FILLER_PARTICLES/_NEG_LOOKBEHIND
+    HedgingRule ..> Lexicons : 读 _HEDGING/_NEG_LOOKBEHIND
+    MetaCommentRule ..> Lexicons : 读 _META_COMMENT
+
+    LogicalConnectorRule ..> ProtectStore : 局部\x01K\x01 哨兵（自包含）
+    PromptSimplifier ..> ProtectStore : 外层\x00P/\x00K\x00

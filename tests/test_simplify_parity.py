@@ -79,12 +79,30 @@ def test_parity_aggressive_not_weaker_than_v25(text):
 
 
 @pytest.mark.parametrize("text", CASES, ids=[f"case{i}" for i in range(len(CASES))])
-def test_parity_explicit_base5_matches_preset(text):
-    # 前端默认总是显式下发 rules=base5；必须与 rules=None 的预设路径逐字一致
+def test_parity_explicit_base5_not_weaker_than_preset(text):
+    """显式下发 base5 相比 rules=None 是有意强化（叠加扩展礼貌词 + 单字「请」）。
+
+    契约变更（evo2-7）：两者不再逐字相等，但显式路径只多删、不增删，
+    token 数只少不多（explicit 是 base5 的超集移除）。
+    """
+    none = simplify_prompt(text, mode="balanced")
+    exp = simplify_prompt(text, mode="balanced", rules=list(BASE5))
+    assert exp["simplified_tokens"] <= none["simplified_tokens"]
+
+
+def test_parity_explicit_base5_politeness_expansion():
+    """契约变更（evo2-7）：显式 base5 叠加扩展礼貌词，rules=None 不叠加。
+
+    原断言（explicit base5 ≡ rules=None）在 explicit 扩展契约下已失效，改为验证
+    「explicit base5 含扩展 politeness 删除，rules=None 不含」；rules=None ≡ v2.5
+    由 test_parity_balanced_rules_none_vs_v25 锁定。
+    """
+    text = "请你帮我写一个函数。请务必使用 Python。可以吗？"
     none_bal = simplify_prompt(text, mode="balanced")
     exp_bal = simplify_prompt(text, mode="balanced", rules=list(BASE5))
-    assert exp_bal["simplified_text"] == none_bal["simplified_text"]
-
-    none_agg = simplify_prompt(text, mode="aggressive")
-    exp_agg = simplify_prompt(text, mode="aggressive", rules=list(BASE5))
-    assert exp_agg["simplified_text"] == none_agg["simplified_text"]
+    # rules=None 保留扩展礼貌词（不删「帮我」）；显式路径删除
+    assert "帮我" in none_bal["simplified_text"]
+    assert "帮我" not in exp_bal["simplified_text"]
+    # rules=None 的简化结果逐字等于 v2.5（契约硬指标，独立测试锁定）
+    v25 = v25_simplify(text, mode="balanced")
+    assert none_bal["simplified_text"] == v25["simplified_text"]

@@ -9,10 +9,25 @@
   按 ``CANONICAL_ORDER`` 顺序执行启用类别 → 还原 → 统计。
 - **零回归硬指标**：``rules is None`` 时 ``PRESETS`` 逐字等于 v2.5 行为
   （balanced/aggressive 输出与旧版字符串相等）。新类别（meta_comment / hedging /
-  redundant_adverbs / examples_trim）仅当用户显式勾选（下发 ``rules``）时生效，
-  不进 ``PRESETS``，故老 API 调用方行为不变。
+  redundant_adverbs / examples_trim / logical_connector / filler_particles）仅当用户
+  显式勾选（下发 ``rules``）时生效，不进 ``PRESETS``，故老 API 调用方行为不变。
 
 零新增 pip 依赖：仅 Python 标准库 + 现有 tokenizer。
+
+evo2-7 增量实现说明（常量位置 / 局部哨兵约定）：
+- 所有词表集中在模块级：``_LOGICAL_CONNECTORS``（排除已属 ``_META_COMMENT`` 的成员，
+  避免重复计数）、``_FILLER_PARTICLES``（不含「吗」）、``_CN_FILLERS_EXPANDED``
+  （仅 ``explicit=True`` 叠加到 politeness）、``_HEDGING``（已追加多字安全词）、
+  ``_CONDITIONAL_MARKERS``（硬排除，仅作文档/防护参考，永不进入连接词）、
+  ``_SEQUENCE_CONNECTORS``、``_ORDERED_LIST_LINE_RE``。
+- 保护占位符命名空间：外层（跨规则共享）用 ``\\x00P<n>\\x00``（代码/URL/行内代码）与
+  ``\\x00K<n>\\x00``（安全词），由 ``_protect/_protect_words/_restore`` 维护；
+  规则内局部哨兵用 ``\\x01K<n>\\x01``（如有序列表序列词保护），与外层 ``\\x00`` 隔离，
+  不污染 ``_restore``、不被重复计数。
+- ``explicit`` 语义：``explicit = (rules is not None)``，仅此标志控制「扩展词表叠加 /
+  单字「请」移除 / 新类别生效」；``rules=None`` 永远等价 v2.5。
+- ``_tag(change, category, explicit)`` 仅在 ``explicit=True`` 时附加 ``[category]``，
+  保障 ``rules=None`` 纯文本格式（parity 关键）。
 """
 from __future__ import annotations
 
@@ -26,6 +41,7 @@ from .tokenizer import count_tokens
 ALL_RULE_IDS: list[str] = [
     "politeness", "role_prefix", "empty_items", "duplicate_lines",
     "blank_lines", "meta_comment", "hedging", "redundant_adverbs", "examples_trim",
+    "logical_connector", "filler_particles",
 ]
 
 # 类别执行顺序：前 5 位与 v2.5 执行顺序逐字一致，保障零回归（P0-3）。
@@ -33,6 +49,7 @@ CANONICAL_ORDER: list[str] = [
     "empty_items", "duplicate_lines", "blank_lines",
     "politeness", "role_prefix",
     "meta_comment", "hedging", "redundant_adverbs", "examples_trim",
+    "logical_connector", "filler_particles",
 ]
 
 # 预设 ↔ rules 映射（仅用于 ``rules is None`` 的向后兼容路径）。
@@ -162,6 +179,66 @@ _NEG_LOOKBEHIND = "".join(
 
 
 # --------------------------------------------------------------------------- #
+# evo2-7 新增规则词典（逻辑连接词 / 句末语气词；仅 explicit 路径 / 显式勾选生效）
+# --------------------------------------------------------------------------- #
+# 条件/控制流标记：硬排除，永不进入 _LOGICAL_CONNECTORS（避免误删「如果/则/否则」等
+# 控制结构）。仅作文档与防护参考，不进任何移除集。
+_CONDITIONAL_MARKERS = [
+    "如果", "若", "假如", "假使", "一旦", "只要", "只有", "则", "那么",
+    "否则", "除非", "不然", "要不然", "假若", "要是", "倘若",
+]
+
+# 逻辑/序列/总结/过渡连接词（草案）
+_LOGICAL_CONNECTORS_DRAFT = [
+    # 因果
+    "因此", "所以", "故", "故此", "故而", "因而", "于是", "由此可见", "正因如此", "由此看来",
+    # 转折
+    "然而", "但是", "不过", "可是", "却", "反倒", "相反", "与之相反", "话虽如此", "尽管如此",
+    # 顺承/序列（有序列表行内受保护）
+    "首先", "其次", "然后", "接着", "随后", "最后", "最终", "一来", "二来", "再者", "进而", "与此同时",
+    # 并列/增补
+    "另外", "此外", "还有", "另一方面", "除此之外", "以及", "并且", "同时",
+    # 总结
+    "总之", "总而言之", "总的来说", "总的来讲", "总的来看", "综上", "综上所述", "一言以蔽之", "概括地说",
+    # 解释/强调
+    "其实", "事实上", "实际上", "具体来说", "具体而言", "换句话说", "换言之", "也就是说",
+    "需要注意的是", "值得一提的是", "值得注意的是", "明确地说", "说白了", "老实说", "不瞒你说",
+    # 话题
+    "话说回来", "言归正传", "回到正题", "顺便说一下", "顺带一提", "补充一下", "多说一句", "再说一句", "再补充一点",
+]
+# 去重：排除已属 _META_COMMENT 的词（保持 _META_COMMENT 不变，仅逻辑连接词侧去重，
+# 避免「另外/此外/换句话说…」在两者同启时被重复计数）。
+_LOGICAL_CONNECTORS = [w for w in _LOGICAL_CONNECTORS_DRAFT if w not in set(_META_COMMENT)]
+
+# 序列连接词（有序列表行内受局部哨兵保护，不删）
+_SEQUENCE_CONNECTORS = [
+    "首先", "其次", "然后", "接着", "随后", "最后", "最终",
+    "一来", "二来", "再者", "进而", "同时", "与此同时",
+]
+
+# 句末语气助词（「吗」刻意不纳入移除集，保留疑问句意图）
+_FILLER_PARTICLES = list("啊呢吧嘛呀哦啦哈嗯哟嘞咯呗呐嗷诶额呃咪噻捏哇耶喔喏啵")
+
+# politeness 扩展集（仅 explicit=True 叠加；不含裸「请」，单字「请」由下方正则处理）
+_CN_FILLERS_EXPANDED = [
+    "能否", "可否", "是否可以", "可不可以", "可以吗", "行吗", "好吗", "方便吗",
+    "不介意的话", "如果可以的话", "帮我", "替我", "辛苦了", "费心", "劳驾",
+    "麻烦您", "拜托你", "求你", "拜托", "劳烦",
+]
+
+# 有序列表行识别（用于保护行内序列连接词）
+_ORDERED_LIST_LINE_RE = re.compile(
+    r"^\s*(?:\d+[.、)）]|\(\d+\)|第[一二三四五六七八九十百零\d]+[、.]|"
+    r"[-*•+]\s*第|步骤[一二三四五六七八九十百零\d]+)"
+)
+
+# hedging 强化（P1，仅追加多字安全词；刻意排除单字「应」，避免误伤「应用/响应/答应」）
+_HEDGING += [
+    "应该", "估计", "想必", "多半", "八成", "兴许", "难免", "基本上", "大体上",
+]
+
+
+# --------------------------------------------------------------------------- #
 # 内部工具（逐字沿用 v2.5）
 # --------------------------------------------------------------------------- #
 def _protect(text: str, store: list[str]) -> str:
@@ -250,13 +327,19 @@ def _is_lead_line(line: str) -> bool:
 # 规则函数（统一签名 fn(work, aggressive_like) -> (work, count)）
 # 除 politeness / role_prefix 外，其余忽略 aggressive_like。
 # --------------------------------------------------------------------------- #
-def _rule_politeness(work: str, aggressive_like: bool) -> tuple[str, int]:
-    """礼貌/冗余填充词移除（v2.5 原逻辑；aggressive_like 控制单字「请」）。"""
+def _rule_politeness(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
+    """礼貌/冗余填充词移除（v2.5 原逻辑；aggressive_like 控制单字「请」）。
+
+    ``explicit=True`` 时叠加 ``_CN_FILLERS_EXPANDED`` 扩展集，且单字「请」也移除
+    （实现"默认更强"）；``explicit=False``（rules=None 路径）仅用 v2.5 原表，逐字不动。
+    """
     cn_fillers = list(_CN_FILLERS_BALANCED)
     en_fillers = list(_EN_FILLERS_BALANCED)
     if aggressive_like:
         cn_fillers += _CN_FILLERS_AGGRESSIVE
         en_fillers += _EN_FILLERS_AGGRESSIVE
+    if explicit:                      # 仅显式路径叠加扩展集
+        cn_fillers += _CN_FILLERS_EXPANDED
 
     filler_removed = 0
     for phrase in en_fillers:
@@ -269,7 +352,7 @@ def _rule_politeness(work: str, aggressive_like: bool) -> tuple[str, int]:
         if cnt:
             work = work.replace(phrase, "")
             filler_removed += cnt
-    if aggressive_like:
+    if aggressive_like or explicit:   # 单字「请」在显式路径也移除
         cnt = len(re.findall(r"请(?=[一-鿿])", work))
         if cnt:
             work = re.sub(r"请(?=[一-鿿])", "", work)
@@ -277,7 +360,7 @@ def _rule_politeness(work: str, aggressive_like: bool) -> tuple[str, int]:
     return work, filler_removed
 
 
-def _rule_role_prefix(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_role_prefix(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """冗长角色前缀精简（v2.5 原逻辑；aggressive_like 控制 5.b 行内兜底）。"""
     role_hits = 0
     out_lines = []
@@ -301,7 +384,7 @@ def _rule_role_prefix(work: str, aggressive_like: bool) -> tuple[str, int]:
     return work, role_hits
 
 
-def _rule_empty_items(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_empty_items(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """空列表项 / 空编号移除。"""
     lines = work.split("\n")
     kept: list[str] = []
@@ -314,7 +397,7 @@ def _rule_empty_items(work: str, aggressive_like: bool) -> tuple[str, int]:
     return "\n".join(kept), removed
 
 
-def _rule_duplicate_lines(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_duplicate_lines(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """重复 / 近 identical 指令合并（归一化后去重）。"""
     lines = work.split("\n")
     kept: list[str] = []
@@ -331,13 +414,13 @@ def _rule_duplicate_lines(work: str, aggressive_like: bool) -> tuple[str, int]:
     return "\n".join(kept), removed
 
 
-def _rule_blank_lines(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_blank_lines(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """折叠连续空行为至多 1 个。"""
     new = _collapse_blank_lines(work)
     return new, 0
 
 
-def _rule_meta_comment(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_meta_comment(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """元评论 / 过渡句短语级移除（不破坏主干）。"""
     cnt = 0
     for phrase in _META_COMMENT:
@@ -348,7 +431,7 @@ def _rule_meta_comment(work: str, aggressive_like: bool) -> tuple[str, int]:
     return work, cnt
 
 
-def _rule_hedging(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_hedging(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """弱语气 / 不确定性词移除（带否定前瞻，避免误伤「不可能/不完全/并没有完全」）。"""
     cnt = 0
     for phrase in _HEDGING:
@@ -360,7 +443,7 @@ def _rule_hedging(work: str, aggressive_like: bool) -> tuple[str, int]:
     return work, cnt
 
 
-def _rule_redundant_adverbs(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_redundant_adverbs(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """冗余副词 / 强调移除（带否定前瞻，避免误伤「不完全/并没有完全」等）。"""
     cnt = 0
     for phrase in _REDUNDANT_ADV:
@@ -372,7 +455,7 @@ def _rule_redundant_adverbs(work: str, aggressive_like: bool) -> tuple[str, int]
     return work, cnt
 
 
-def _rule_examples_trim(work: str, aggressive_like: bool) -> tuple[str, int]:
+def _rule_examples_trim(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """过长示例压缩（默认关闭，仅显式勾选时生效）。
 
     识别「示例引导词」之后的连续非空行块；超阈值（≥4 行 或 ≥200 字符）折叠为
@@ -418,6 +501,66 @@ def _rule_examples_trim(work: str, aggressive_like: bool) -> tuple[str, int]:
     return "\n".join(out), blocks
 
 
+def _rule_logical_connector(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
+    """逻辑/序列/总结/过渡连接词移除（带否定前瞻，避免「不因此→不」）。
+
+    仅删不携带"要模型做什么"语义的连接词；条件/控制流标记（_CONDITIONAL_MARKERS）
+    永不进入 _LOGICAL_CONNECTORS，故不会被误删。
+
+    编号/有序列表语境保护：行首命中 _ORDERED_LIST_LINE_RE 的行，其行内序列连接词
+    （_SEQUENCE_CONNECTORS）先以规则内局部哨兵 \\x01K<n>\\x01 暂存（与外层 _protect/
+    _restore 的 \\x00 命名空间隔离），移除游离连接词后再还原——既不污染外层 _restore、
+    也不会被重复计数。非列表语境中的序列词仍正常移除。
+    """
+    # 1) 有序列表行：用局部哨兵保护行内序列词
+    local_store: list[str] = []
+    lines = work.split("\n")
+    for i, line in enumerate(lines):
+        if _ORDERED_LIST_LINE_RE.match(line):
+            for w in _SEQUENCE_CONNECTORS:
+                if w in line:
+                    idx = len(local_store)
+                    local_store.append(w)
+                    line = line.replace(w, f"\x01K{idx}\x01")
+            lines[i] = line
+    work = "\n".join(lines)
+
+    # 2) 移除游离连接词（受否定前瞻保护，条件标记本就不在 _LOGICAL_CONNECTORS）
+    removed = 0
+    for phrase in _LOGICAL_CONNECTORS:
+        pattern = _NEG_LOOKBEHIND + re.escape(phrase)
+        matches = re.findall(pattern, work)
+        if matches:
+            work = re.sub(pattern, "", work)
+            removed += len(matches)
+
+    # 3) 还原局部哨兵（序列词），不污染外层 _restore 的 \\x00 命名空间
+    def _rep(match: "re.Match[str]") -> str:
+        j = int(match.group(1))
+        return local_store[j] if 0 <= j < len(local_store) else match.group(0)
+
+    work = re.sub(r"\x01K(\d+)\x01", _rep, work)
+    return work, removed
+
+
+def _rule_filler_particles(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
+    """句末语气助词移除（啊/呢/吧/嘛/呀/哦/啦/哈/嗯/哟/嘞…）。
+
+    - 仅句末（后接 。！？.!?… 或文末）移除，句中谨慎不删，避免误伤必要衔接。
+    - 「吗」刻意不纳入移除集，保留疑问句意图（PRD Q4）。
+    - 叠加否定前瞻，避免「不啊→不」误删（硬约束）。
+    """
+    removed = 0
+    tail = r"(?=[。！？\.!?\…]|\Z)"
+    for w in _FILLER_PARTICLES:
+        pattern = _NEG_LOOKBEHIND + re.escape(w) + tail
+        matches = re.findall(pattern, work)
+        if matches:
+            work = re.sub(pattern, "", work)
+            removed += len(matches)
+    return work, removed
+
+
 # 规则注册表：id -> fn（default_in_presets 仅供文档/自检）
 RULE_REGISTRY: dict[str, dict] = {
     "politeness":        {"fn": _rule_politeness,        "default_in_presets": True},
@@ -429,6 +572,8 @@ RULE_REGISTRY: dict[str, dict] = {
     "hedging":           {"fn": _rule_hedging,           "default_in_presets": False},
     "redundant_adverbs": {"fn": _rule_redundant_adverbs, "default_in_presets": False},
     "examples_trim":     {"fn": _rule_examples_trim,     "default_in_presets": False},
+    "logical_connector": {"fn": _rule_logical_connector, "default_in_presets": False},
+    "filler_particles":  {"fn": _rule_filler_particles,  "default_in_presets": False},
 }
 
 
@@ -503,47 +648,57 @@ def simplify_prompt(text: str, mode: str = "balanced", rules: list[str] | None =
 
     # 2) 空列表项 + 重复指令（顺序与 v2.5 一致；各自可独立关闭）
     if "empty_items" in rule_ids:
-        work, n = _rule_empty_items(work, aggressive_like)
+        work, n = _rule_empty_items(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"删除 {n} 个空列表项", "empty_items", explicit))
     if "duplicate_lines" in rule_ids:
-        work, n = _rule_duplicate_lines(work, aggressive_like)
+        work, n = _rule_duplicate_lines(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"合并 {n} 条重复指令", "duplicate_lines", explicit))
 
     # 3) 空行折叠（首折，与 v2.5 顺序一致）
     if "blank_lines" in rule_ids:
-        work = _rule_blank_lines(work, aggressive_like)[0]
+        work = _rule_blank_lines(work, aggressive_like, explicit)[0]
 
     # 4) 礼貌/冗余填充词
     if "politeness" in rule_ids:
-        work, n = _rule_politeness(work, aggressive_like)
+        work, n = _rule_politeness(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"移除 {n} 处礼貌/冗余填充词", "politeness", explicit))
 
     # 5) 冗长角色前缀精简
     if "role_prefix" in rule_ids:
-        work, n = _rule_role_prefix(work, aggressive_like)
+        work, n = _rule_role_prefix(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"精简 {n} 处角色描述", "role_prefix", explicit))
 
     # 6) v2.6 新增类别（仅显式勾选时进入；不在 PRESETS，故不影响零回归）
     if "meta_comment" in rule_ids:
-        work, n = _rule_meta_comment(work, aggressive_like)
+        work, n = _rule_meta_comment(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"移除 {n} 处元评论/过渡句", "meta_comment", explicit))
     if "hedging" in rule_ids:
-        work, n = _rule_hedging(work, aggressive_like)
+        work, n = _rule_hedging(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"移除 {n} 处弱语气词", "hedging", explicit))
     if "redundant_adverbs" in rule_ids:
-        work, n = _rule_redundant_adverbs(work, aggressive_like)
+        work, n = _rule_redundant_adverbs(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"移除 {n} 处冗余副词", "redundant_adverbs", explicit))
     if "examples_trim" in rule_ids:
-        work, n = _rule_examples_trim(work, aggressive_like)
+        work, n = _rule_examples_trim(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"压缩 {n} 处过长示例", "examples_trim", explicit))
+
+    # 7) evo2-7 新增类别（逻辑连接词 / 句末语气词；永不进 PRESETS）
+    if "logical_connector" in rule_ids:
+        work, n = _rule_logical_connector(work, aggressive_like, explicit)
+        if n:
+            changes.append(_tag(f"移除 {n} 处逻辑/过渡连接词", "logical_connector", explicit))
+    if "filler_particles" in rule_ids:
+        work, n = _rule_filler_particles(work, aggressive_like, explicit)
+        if n:
+            changes.append(_tag(f"移除 {n} 处句末语气助词", "filler_particles", explicit))
 
     # 7) 还原（先放回归位保护片段，再按 blank_lines 是否启用决定折叠策略）
     work = _restore(work, protected)

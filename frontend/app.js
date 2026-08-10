@@ -531,11 +531,19 @@ async function depositRule(pair) {
   }
 }
 
-/* ---------- v2.6 Prompt 简化器（可多选规则 + 保守/激进预设） ---------- */
-const SIMPLIFY_RULE_IDS = ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","hedging","redundant_adverbs","examples_trim"];
+/* ---------- v2.7 Prompt 简化器（可多选规则 + 保守/激进预设） ---------- */
+/* 规则 id 单一真源，必须与后端 skillforge.prompt_simplifier.ALL_RULE_IDS 逐字一致。 */
+const SIMPLIFY_RULE_IDS = [
+  "politeness","role_prefix","empty_items","duplicate_lines","blank_lines",
+  "meta_comment","hedging","redundant_adverbs","examples_trim",
+  "logical_connector","filler_particles",
+];
+/* 保守 = 5 基础 + logical_connector + filler_particles + meta_comment（默认更强）
+   激进 = 保守 + hedging + redundant_adverbs + examples_trim（全 11 类）。
+   新类别（logical_connector / filler_particles）永不进后端 PRESETS。 */
 const SIMPLIFY_PRESETS = {
-  balanced:   { mode: "balanced",   rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines"] },
-  aggressive: { mode: "aggressive", rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","hedging","redundant_adverbs","examples_trim"] },
+  balanced:   { mode: "balanced",   rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","logical_connector","filler_particles"] },
+  aggressive: { mode: "aggressive", rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","hedging","redundant_adverbs","examples_trim","logical_connector","filler_particles"] },
 };
 
 function getSimplifyState() {
@@ -560,12 +568,29 @@ function applySimplifyPreset(name) {
 }
 
 function saveSimplifyState() {
-  try { localStorage.setItem("skillforge_simplify_v2_6", JSON.stringify(getSimplifyState())); } catch (e) {}
+  try { localStorage.setItem("skillforge_simplify_v2_7", JSON.stringify(getSimplifyState())); } catch (e) {}
 }
 
 function loadSimplifyState() {
   try {
-    const raw = localStorage.getItem("skillforge_simplify_v2_6");
+    // 优先 v2_7；缺失则迁移 v2_6（用仍存在的 id 过滤后应用并写回 v2_7）
+    let raw = localStorage.getItem("skillforge_simplify_v2_7");
+    if (!raw) {
+      const old = localStorage.getItem("skillforge_simplify_v2_6");
+      if (old) {
+        try {
+          const st = JSON.parse(old);
+          if (st && Array.isArray(st.rules)) {
+            const migrated = {
+              mode: st.mode,
+              rules: st.rules.filter((id) => SIMPLIFY_RULE_IDS.includes(id)),
+            };
+            localStorage.setItem("skillforge_simplify_v2_7", JSON.stringify(migrated));
+            raw = JSON.stringify(migrated);
+          }
+        } catch (e) {}
+      }
+    }
     if (!raw) return false;
     const st = JSON.parse(raw);
     if (st && Array.isArray(st.rules)) {

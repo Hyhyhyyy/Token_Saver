@@ -1,0 +1,78 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant FE as 前端 doSimplify (app.js)
+    participant API as /api/simplify (server.py)
+    participant SP as simplify_prompt
+    participant P as _protect/_restore
+    participant POL as _rule_politeness
+    participant LC as _rule_logical_connector
+    participant FP as _rule_filler_particles
+    participant HED as _rule_hedging
+
+    User->>FE: 输入 prompt，勾选规则（默认含 logical_connector/filler_particles）
+    FE->>API: POST {text, mode, rules}  %% rules 非空 → explicit=True
+
+    API->>API: rules 非 list → None（契约兜底）；否则透传
+    API->>SP: simplify_prompt(text, mode, rules)
+
+    SP->>SP: explicit = (rules is not None)
+    SP->>SP: _resolve_rule_ids(rules, mode) → (rule_ids, mode, aggressive_like)
+    Note over SP: rules=None → PRESETS(5 基础类)，explicit=False
+
+    SP->>P: _protect(original)  %% 冻结代码块/URL/行内代码/安全词 → \x00P/\x00K
+    P-->>SP: work（受保护片段已占位）
+
+    alt "empty_items" in rule_ids
+        SP->>SP: _rule_empty_items(work, aggressive_like)
+    end
+    alt "duplicate_lines" in rule_ids
+        SP->>SP: _rule_duplicate_lines(work, aggressive_like)
+    end
+    alt "blank_lines" in rule_ids
+        SP->>SP: _rule_blank_lines(work, aggressive_like)  %% 首折
+    end
+
+    alt "politeness" in rule_ids
+        SP->>POL: _rule_politeness(work, aggressive_like, explicit)
+        Note over POL: explicit=True 时叠加 _CN_FILLERS_EXPANDED + 单字"请"<br/>explicit=False（rules=None）仅 v2.5 原表
+        POL-->>SP: work, n
+    end
+
+    alt "role_prefix" in rule_ids
+        SP->>SP: _rule_role_prefix(work, aggressive_like, explicit)
+    end
+    alt "meta_comment" in rule_ids
+        SP->>SP: _rule_meta_comment(work, aggressive_like, explicit)  %% 不变
+    end
+    alt "hedging" in rule_ids
+        SP->>HED: _rule_hedging(work, aggressive_like, explicit)
+        Note over HED: 用强化后 _HEDGING + _NEG_LOOKBEHIND
+        HED-->>SP: work, n
+    end
+    alt "redundant_adverbs" in rule_ids
+        SP->>SP: _rule_redundant_adverbs(work, aggressive_like, explicit)
+    end
+    alt "examples_trim" in rule_ids
+        SP->>SP: _rule_examples_trim(work, aggressive_like, explicit)
+    end
+
+    alt "logical_connector" in rule_ids
+        SP->>LC: _rule_logical_connector(work, aggressive_like, explicit)
+        Note over LC: 1) 有序列表行内序列词 → 局部 \x01K\x01 哨兵保护<br/>2) 否定前瞻移除连接词（排除 _CONDITIONAL_MARKERS）<br/>3) 还原 \x01K\x01
+        LC-->>SP: work, n
+    end
+    alt "filler_particles" in rule_ids
+        SP->>FP: _rule_filler_particles(work, aggressive_like, explicit)
+        Note over FP: 仅句末语气词 + 否定前瞻；吗 不移除
+        FP-->>SP: work, n
+    end
+
+    SP->>P: _restore(work)  %% 还原 \x00P/\x00K 保护片段（逐字节不变）
+    P-->>SP: simplified
+    SP->>SP: 统计 token / changes（_tag 仅 explicit 附 [category]）
+    SP-->>API: dict{simplified_text, tokens_saved, changes, ...}
+    API-->>FE: JSON
+    FE-->>User: 渲染简化结果 + 变更列表
+
+    Note over SP,FP: 关键不变量<br/>rules=None 路径 explicit=False → PRESETS 仅 5 类 → 输出逐字等于 v2.5

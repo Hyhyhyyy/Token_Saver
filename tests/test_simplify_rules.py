@@ -24,6 +24,7 @@ def test_all_rule_ids_exact():
     assert ALL_RULE_IDS == [
         "politeness", "role_prefix", "empty_items", "duplicate_lines",
         "blank_lines", "meta_comment", "hedging", "redundant_adverbs", "examples_trim",
+        "logical_connector", "filler_particles",
     ]
 
 
@@ -157,12 +158,17 @@ def test_u7_explicit_without_blank_lines_preserves_blanks():
 
 
 def test_aggressive_like_via_mode_single_qing():
-    # aggressive(mode) 触发单字「请」移除；balanced 保留
+    # 契约变更（evo2-7）：单字「请」在 aggressive 模式 或 explicit 路径（下发 rules）均移除；
+    # 仅 rules=None（explicit=False，≡ v2.5）的 balanced 保留。
     text = "请开始写代码。请你吃饭。"
-    bal = _text(["politeness"], text, mode="balanced")
-    agg = _text(["politeness"], text, mode="aggressive")
-    # 「请开始」的孤「请」只在 aggressive 被删；「请你」是 balanced 短语，两者都删
-    assert "请开始" in bal["simplified_text"]
+    # rules=None balanced（v2.5 等价）：单字「请」保留
+    none_bal = simplify_prompt(text, mode="balanced")
+    assert "请开始" in none_bal["simplified_text"]
+    # explicit balanced（前端默认下发 rules，explicit=True）：单字「请」移除（默认更强）
+    exp_bal = simplify_prompt(text, mode="balanced", rules=["politeness"])
+    assert "请开始" not in exp_bal["simplified_text"]
+    # aggressive 模式（rules=None）同样移除单字「请」
+    agg = simplify_prompt(text, mode="aggressive")
     assert "请开始" not in agg["simplified_text"]
 
 
@@ -218,3 +224,126 @@ def test_examples_trim_threshold_boundary():
     r4 = _text(["examples_trim"], four)
     assert "示例已压缩" in r4["simplified_text"]
     assert "共 4 行" in r4["simplified_text"]
+
+
+# --------------------------------------------------------------------------- #
+# evo2-7 新增：逻辑连接词 / 句末语气词 / 显式礼貌词强化 / 弱语气词强化
+# --------------------------------------------------------------------------- #
+def test_logical_connector_removes_free_connectors():
+    """游离连接词被移除，但不删指令性内容。"""
+    text = "因此，我们需要先读取配置。但是请注意端口。然后启动服务。"
+    on = _text(["logical_connector"], text)
+    out = on["simplified_text"]
+    assert "因此" not in out
+    assert "但是" not in out
+    assert "然后" not in out
+    # 保留关键动作/参数
+    assert "读取配置" in out
+    assert "端口" in out
+    assert "启动服务" in out
+
+
+def test_logical_connector_keeps_conditional_and_ordered_list():
+    """条件标记（如果/则/否则）不删；有序列表行内序列词受局部哨兵保护不删。"""
+    # 条件结构保留
+    cond = "如果文件存在，则读取它，否则创建新文件。"
+    rc = _text(["logical_connector"], cond)
+    assert "如果" in rc["simplified_text"]
+    assert "则" in rc["simplified_text"]
+    assert "否则" in rc["simplified_text"]
+
+    # 有序列表行内序列词保护
+    lst = "1. 首先打开文件。\n2. 然后读取内容。\n3. 最后保存。"
+    rl = _text(["logical_connector"], lst)
+    out = rl["simplified_text"]
+    assert "首先" in out
+    assert "然后" in out
+    assert "最后" in out
+    # 编号列表结构保留
+    assert "1." in out and "2." in out and "3." in out
+
+
+def test_logical_connector_negated_preserved():
+    """否定前瞻保护：「不因此」不得误删为「不」。"""
+    text = "我们不因此才失败的。"
+    on = _text(["logical_connector"], text)["simplified_text"]
+    assert "不因此" in on
+
+
+def test_logical_connector_off_keeps_connectors():
+    """规则关闭时连接词保留。"""
+    text = "因此我们需要启动服务。"
+    off = _text(["blank_lines"], text)
+    assert "因此" in off["simplified_text"]
+
+
+def test_filler_particles_removes_sentence_final():
+    """句末语气助词移除；「吗」保留（疑问句意图）。"""
+    text = "你帮我看看这个啊。它可以运行吗？请你确认嘛。"
+    on = _text(["filler_particles"], text)
+    out = on["simplified_text"]
+    assert "啊" not in out
+    assert "嘛" not in out
+    # 「吗」不在移除集，疑问句保留
+    assert "吗" in out
+
+
+def test_filler_particles_keeps_mid_sentence():
+    """句中语气助词谨慎不删。"""
+    text = "嗯，这个呢需要通过测试。"
+    on = _text(["filler_particles"], text)
+    # 「呢」句中不删（无句末终结符紧随）
+    assert "呢" in on["simplified_text"]
+
+
+def test_filler_particles_negated_preserved():
+    """否定前瞻保护：「不啊→不」不得误删。"""
+    text = "这并不啊。"  # 构造否定紧贴语气词
+    on = _text(["filler_particles"], text)
+    assert "不啊" in on["simplified_text"]
+
+
+def test_filler_particles_off_keeps():
+    """规则关闭时语气词保留。"""
+    text = "好的啊。"
+    off = _text(["blank_lines"], text)
+    assert "啊" in off["simplified_text"]
+
+
+def test_politeness_explicit_only():
+    """扩展礼貌词仅 explicit=True（下发 rules）时叠加；rules=None 不删。"""
+    text = "请你帮我写代码，可以吗？"
+    none = simplify_prompt(text, mode="balanced")  # rules=None → explicit=False
+    exp = simplify_prompt(text, mode="balanced", rules=list(BASE5))  # explicit=True
+    # rules=None 保留扩展礼貌词（不删「帮我」）
+    assert "帮我" in none["simplified_text"]
+    # 显式路径叠加扩展集 → 删除「帮我」
+    assert "帮我" not in exp["simplified_text"]
+    # 单字「请」在显式 balanced 也删除；rules=None 保留
+    assert "请开始" in simplify_prompt("请开始写。", mode="balanced")["simplified_text"]
+    assert "请开始" not in simplify_prompt("请开始写。", mode="balanced", rules=list(BASE5))["simplified_text"]
+
+
+def test_hedging_strengthened():
+    """hedging 强化：多字安全词（应该/估计/难免/基本上…）被移除，单字「应」不误伤。"""
+    text = "你应该估计一下，难免出错，基本上可行。应用此配置响应请求。"
+    on = _text(["hedging"], text)
+    out = on["simplified_text"]
+    assert "应该" not in out
+    assert "估计" not in out
+    assert "难免" not in out
+    assert "基本上" not in out
+    # 单字「应」刻意排除：应用 / 响应 不得被误删
+    assert "应用" in out
+    assert "响应" in out
+
+
+def test_new_rule_ids_registered_not_in_presets():
+    """两个新类别已注册，但永不进入 PRESETS（保障 rules=None ≡ v2.5）。"""
+    from skillforge.prompt_simplifier import RULE_REGISTRY, PRESETS
+    assert "logical_connector" in RULE_REGISTRY
+    assert "filler_particles" in RULE_REGISTRY
+    for preset_rules in PRESETS.values():
+        assert "logical_connector" not in preset_rules
+        assert "filler_particles" not in preset_rules
+
