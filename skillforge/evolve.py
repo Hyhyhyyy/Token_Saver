@@ -229,9 +229,15 @@ def run_evolve(seed_threshold: int | None = None,
             shared = pair.get("shared_keywords") or []
             kc = shared if shared else [pair["skill_a"], pair["skill_b"]]
             try:
-                rule = custom_rules.deposit_custom_rule(kc, pair["suggestion"])
+                # P0-1：去重沉淀。相同 keyword_cluster 已存在则不重复写入，
+                # 避免 AUTO_EVOLVE_LOOP 下冲突规则无限膨胀。
+                result = custom_rules.deposit_custom_rule(kc, pair["suggestion"], dedupe=True)
             except ValueError:
                 continue
+            # 去重命中：跳过账本与结果收集（不产生新沉淀）
+            if not result.get("deposited", True):
+                continue
+            rule = result
             cluster_json = json.dumps(
                 {"skill_a": pair["skill_a"], "skill_b": pair["skill_b"],
                  "keyword_cluster": kc},

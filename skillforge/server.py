@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from .validator import validate
 from .cleaner import clean_skill
 from .tracker import log_event, get_stats, get_series, get_leaderboard, get_skill_stats
 from .tokenizer import BACKEND, count_tokens
+from .prompt_simplifier import simplify_prompt
 from .spec import STANDARD_VERSION, SKILL_TEMPLATE, DESC_TEMPLATE, DESC_EXAMPLE, get_validation_rules
 from . import config
 from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve, auto_loop, skill_signature
@@ -171,12 +173,24 @@ async def apply(request: Request):
     # 防御：拒绝可能损坏技能文件的退化写入
     if not serialized.strip().startswith("---"):
         raise HTTPException(400, "序列化内容缺少 frontmatter，已拒绝写入")
-    import tempfile
-    tmp = Path(tempfile.mktemp(suffix=".md"))
-    tmp.write_text(serialized, encoding="utf-8")
-    from .skill_parser import parse_skill_file, description_tokens
-    parsed = parse_skill_file(tmp)
-    tmp.unlink()
+    # CWE-377 修复：弃用 tempfile.mktemp（存在竞态/预测风险），改为
+    # NamedTemporaryFile(delete=False) 并在 finally 中确保删除临时文件。
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as fh:
+            fh.write(serialized)
+            tmp = Path(fh.name)
+        from .skill_parser import parse_skill_file, description_tokens
+        parsed = parse_skill_file(tmp)
+    finally:
+        # 无论解析成功/失败/异常，均清理临时文件（避免残留 .md 泄漏）
+        if tmp is not None and tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:  # noqa: BLE001
+                pass
     fm = parsed.get("frontmatter", {})
     if not fm.get("name") or not str(fm.get("description", "")).strip():
         raise HTTPException(400, "清洗结果缺少 name 或 description，已拒绝写入以防损坏")
@@ -197,6 +211,27 @@ async def apply(request: Request):
     after_tokens = description_tokens(new["frontmatter"])
     log_event(skill_id, "apply", s["desc_tokens"], after_tokens, note="已写回并备份原文件")
     return {"ok": True, "backup": str(backup), "after_desc_tokens": after_tokens}
+
+
+# ============================ v2.5 Prompt 简化器（核心新功能） ============================
+
+@app.post("/api/simplify")
+async def simplify(request: Request) -> dict:
+    """Prompt 简化器：粘贴/拖拽的 prompt 文本 → 压缩 + token 节省统计。
+
+    请求体 {text, mode?}，mode 默认 "balanced"，可选 "aggressive"。
+    空 text 优雅返回全零/空串（original_text="" / simplified_text="" / 各计数 0 /
+    changes=[]），不会 500。
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    text = body.get("text", "")
+    mode = body.get("mode", "balanced")
+    return simplify_prompt(text, mode=mode)
 
 
 @app.post("/api/track")
@@ -329,13 +364,14 @@ async def put_custom_rule(request: Request):
         obj = custom_rules.deposit_custom_rule(kc, suggestion, rule, severity)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    # 落点补记账本（E1）：手动沉淀冲突规则
-    simbank.log_evolution(
-        "conflict_rule_deposit", obj["id"], "",
-        json.dumps(obj.get("keyword_cluster", []), ensure_ascii=False),
-        "manual", "手动沉淀冲突规则",
-    )
-    return {"rule": obj}
+    # 落点补记账本（E1）：手动沉淀冲突规则（去重命中时不重复记，避免账本膨胀）
+    if obj.get("deposited", True):
+        simbank.log_evolution(
+            "conflict_rule_deposit", obj["id"], "",
+            json.dumps(obj.get("keyword_cluster", []), ensure_ascii=False),
+            "manual", "手动沉淀冲突规则",
+        )
+    return {"rule": obj, "deposited": obj.get("deposited", True)}
 
 
 @app.get("/api/config/vectorizer")

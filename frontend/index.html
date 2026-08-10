@@ -16,7 +16,8 @@
       </div>
     </div>
     <nav class="nav">
-      <button id="nav-assets" class="nav-btn active">技能资产</button>
+      <button id="nav-simplify" class="nav-btn active">简化</button>
+      <button id="nav-assets" class="nav-btn">技能资产</button>
       <button id="nav-sim" class="nav-btn">仿真沙盘</button>
       <button id="nav-conflicts" class="nav-btn">冲突检测</button>
       <button id="nav-dashboard" class="nav-btn">数据看板</button>
@@ -45,6 +46,7 @@
         <section>
           <h4>② 5 个主视图</h4>
           <ul>
+            <li><b>简化</b>：粘贴 / 拖拽 prompt → 一键压缩并给出 token 节省</li>
             <li><b>技能资产</b>：浏览 / 校验你的技能仓库</li>
             <li><b>仿真沙盘</b>：反事实调度 / 成本延迟仿真</li>
             <li><b>冲突检测</b>：技能间规则冲突与消解</li>
@@ -79,8 +81,40 @@
     </div>
   </div>
 
+  <!-- 简化视图（v2.5 · Prompt 简化器，新增默认落地功能） -->
+  <section id="view-simplify" class="view">
+    <main class="detail" style="width:100%">
+      <div class="card">
+        <h3>Prompt 简化器 · 一键压缩你的提示词</h3>
+        <p class="note">粘贴或拖拽 .txt 文件到下方文本框，选择压缩强度，点击「一键简化」即可去除冗余礼貌用语、合并重复指令、保留代码块与 URL，并给出 token 节省统计。</p>
+        <textarea id="simplifyInput" class="simplify-input" placeholder="粘贴 prompt 文本，或拖拽 .txt 文件到此处"></textarea>
+        <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px;align-items:center">
+          <label class="radio"><input type="radio" name="simplifyMode" value="balanced" checked> 均衡</label>
+          <label class="radio"><input type="radio" name="simplifyMode" value="aggressive"> 激进</label>
+          <button class="btn" id="btnSimplify">⚡ 一键简化</button>
+          <span id="simplifyErr" class="err"></span>
+        </div>
+      </div>
+      <div id="simplifyOutput" class="card hidden" style="margin-top:16px">
+        <h3>简化结果</h3>
+        <textarea id="simplifyResult" class="simplify-input" readonly placeholder="简化结果将显示在这里"></textarea>
+        <div class="stats-row">
+          <div class="stat"><div class="big" id="simOrigTokens">0</div><div class="l">原始 token</div></div>
+          <div class="stat"><div class="big down" id="simSimpTokens">0</div><div class="l">简化后 token</div></div>
+          <div class="stat"><div class="big down" id="simSavedTokens">0</div><div class="l">节省 token</div></div>
+          <div class="stat"><div class="big down" id="simSavedPct">0%</div><div class="l">节省百分比</div></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="btnCopySimplify">📋 复制</button>
+          <button class="btn secondary" id="btnExportSimplify">⬇ 导出 .txt</button>
+        </div>
+        <div id="simplifyChanges" class="changes" style="margin-top:12px"><b>变更：</b><ul></ul></div>
+      </div>
+    </main>
+  </section>
+
   <!-- 资产视图 -->
-  <section id="view-assets" class="view">
+  <section id="view-assets" class="view hidden">
     <aside class="sidebar">
       <div class="sidebar-head">
         <span>技能资产</span>

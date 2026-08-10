@@ -35,14 +35,40 @@ def next_conflict_id() -> str:
     return f"CONFLICT-{max_n + 1:02d}"
 
 
-def deposit_custom_rule(keyword_cluster, suggestion: str,
-                        rule: str | None = None, severity: str = "warning") -> dict:
-    """沉淀一条冲突规则并落盘，返回完整规则对象。"""
+def deposit_custom_rule(keyword_cluster, suggestion: str = "",
+                        rule: str | None = None, severity: str = "warning",
+                        dedupe: bool = True) -> dict:
+    """沉淀一条冲突规则并落盘，返回规则对象。
+
+    返回值在原有字段（id/dim/keyword_cluster/rule/severity/source）基础上，额外附带
+    ``deposited``（bool）与 ``reason``（重复时）。``dedupe=True``（默认）时，若已存在
+    相同 ``keyword_cluster``（以排序后元组为 key）的规则则不重复写入，返回已存在规则 +
+    ``{"deposited": False, "reason": "duplicate"}``；否则写入新规则并返回
+    ``{"deposited": True}``。调用方（如 run_evolve 自动沉淀）可据 ``deposited`` 决定是否
+    补记账本，避免 AUTO_EVOLVE_LOOP 下无限膨胀。
+
+    向后兼容：``dedupe=False`` 强制追加（保留旧行为）；默认 ``dedupe=True`` 不改变
+    正常首次沉淀的返回值结构（仍是规则 dict，仅多两个标记键）。
+    """
     if not isinstance(keyword_cluster, list) or not keyword_cluster:
         raise ValueError("keyword_cluster 必须为非空数组")
     if severity not in ("warning", "info"):
         severity = "warning"
+
     rules = load_custom_rules()
+
+    # 去重：以排序后的 keyword_cluster 元组为 key（与列表顺序无关）
+    if dedupe:
+        key = tuple(sorted(str(k) for k in keyword_cluster))
+        for existing in rules:
+            exist_key = tuple(sorted(str(k) for k in existing.get("keyword_cluster", [])))
+            if exist_key == key:
+                # 返回已存在规则并标注重复（保留原有全部字段 + 补充标志）
+                dup = dict(existing)
+                dup["deposited"] = False
+                dup["reason"] = "duplicate"
+                return dup
+
     rid = next_conflict_id()
     if not rule:
         kc = "、".join(str(k) for k in keyword_cluster)
@@ -54,6 +80,7 @@ def deposit_custom_rule(keyword_cluster, suggestion: str,
         "rule": rule,
         "severity": severity,
         "source": "conflict-detector",
+        "deposited": True,
     }
     rules.append(obj)
     CUSTOM_RULES_PATH.write_text(

@@ -75,6 +75,7 @@ async function init() {
   renderSidebar();
   bindNav();
   bindTabs();
+  initSimplifier();     // v2.5：绑定简化器拖拽/按钮（一次绑定）
   bindAnomalyClick();   // B-4：事件委托（一次绑定，不阻塞首屏）
   if (list.count) selectSkill(list.skills[0].name);
   // 使用说明：首次进入自动弹（不阻塞首屏渲染）
@@ -530,9 +531,87 @@ async function depositRule(pair) {
   }
 }
 
+/* ---------- v2.5 Prompt 简化器（落地默认功能） ---------- */
+function initSimplifier() {
+  const ta = $("#simplifyInput");
+  if (!ta) return;
+  // 拖拽 .txt 文件 → 读入 textarea
+  ["dragenter", "dragover"].forEach((ev) =>
+    ta.addEventListener(ev, (e) => { e.preventDefault(); ta.classList.add("dragging"); })
+  );
+  ["dragleave", "drop"].forEach((ev) =>
+    ta.addEventListener(ev, (e) => { e.preventDefault(); ta.classList.remove("dragging"); })
+  );
+  ta.addEventListener("drop", (e) => {
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".txt")) {
+      $("#simplifyErr").textContent = "仅支持 .txt 文件";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      ta.value = String(reader.result || "");
+      $("#simplifyErr").textContent = "";
+    };
+    reader.readAsText(file);
+  });
+  $("#btnSimplify").onclick = doSimplify;
+  $("#btnCopySimplify").onclick = () => {
+    navigator.clipboard.writeText($("#simplifyResult").value);
+    toast("已复制简化结果到剪贴板");
+  };
+  $("#btnExportSimplify").onclick = exportSimplify;
+}
+
+async function doSimplify() {
+  const text = $("#simplifyInput").value;
+  if (!text.trim()) {
+    $("#simplifyErr").textContent = "请先输入或拖入 prompt 文本";
+    return;
+  }
+  $("#simplifyErr").textContent = "";
+  const mode = (document.querySelector('input[name="simplifyMode"]:checked') || {}).value || "balanced";
+  $("#btnSimplify").disabled = true;
+  $("#btnSimplify").textContent = "简化中…";
+  try {
+    const r = await api("/api/simplify", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, mode }),
+    });
+    $("#simplifyResult").value = r.simplified_text ?? "";
+    $("#simOrigTokens").textContent = r.original_tokens ?? 0;
+    $("#simSimpTokens").textContent = r.simplified_tokens ?? 0;
+    $("#simSavedTokens").textContent = r.tokens_saved ?? 0;
+    $("#simSavedPct").textContent = (r.savings_pct ?? 0) + "%";
+    const ul = $("#simplifyChanges ul");
+    const changes = (r.changes && r.changes.length) ? r.changes : ["无需变更"];
+    ul.innerHTML = changes.map((c) => `<li>${esc(c)}</li>`).join("");
+    $("#simplifyOutput").classList.remove("hidden");
+  } catch (e) {
+    $("#simplifyErr").textContent = "简化失败：" + e.message;
+  } finally {
+    $("#btnSimplify").disabled = false;
+    $("#btnSimplify").textContent = "⚡ 一键简化";
+  }
+}
+
+function exportSimplify() {
+  const txt = $("#simplifyResult").value || "";
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `simplified_${ts}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`已导出 simplified_${ts}.txt`);
+}
+
 /* ---------- 导航/标签 ---------- */
 function showView(name) {
   const map = {
+    simplify: ["nav-simplify", "view-simplify"],
     assets: ["nav-assets", "view-assets"],
     sim: ["nav-sim", "view-sim"],
     conflicts: ["nav-conflicts", "view-conflicts"],
@@ -554,6 +633,7 @@ function showView(name) {
   if (name === "evolve") renderEvolve();
 }
 function bindNav() {
+  $("#nav-simplify").onclick = () => showView("simplify");
   $("#nav-assets").onclick = () => showView("assets");
   $("#nav-sim").onclick = () => showView("sim");
   $("#nav-conflicts").onclick = () => showView("conflicts");
