@@ -60,6 +60,16 @@ _ROLE_PREFIXES = [
     ("act as an", "Role:"), ("i want you to act as", "Role:"),
 ]
 
+# 中文角色前缀（供 aggressive 模式行内兜底移除；按长度降序避免短串误匹配长串）
+_ROLE_PREFIX_CN = sorted(
+    [
+        "你是一个专业的", "你是一位专业的", "我希望你扮演",
+        "你是一个", "你是一名", "你是一位", "请你扮演", "请扮演",
+    ],
+    key=len,
+    reverse=True,
+)
+
 # 空列表项：行首 -, *, •, + 或 数字./) 或 字母./) 之后无实际内容
 _EMPTY_BULLET_RE = re.compile(
     r"^\s*([-*•+]\s+|\d+[.)]\s+|[a-z][.)]\s+)\s*$",
@@ -265,6 +275,20 @@ def simplify_prompt(text: str, mode: str = "balanced") -> dict:
             role_hits += 1
         out_lines.append(new_line)
     work = "\n".join(out_lines)
+
+    # 5.b) aggressive：兜底移除行内（非行首）残留的中文角色前缀
+    if aggressive:
+        new_out: list[str] = []
+        for line in out_lines:
+            for prefix in _ROLE_PREFIX_CN:
+                if prefix in line:
+                    line = line.replace(prefix, "")
+                    role_hits += 1
+            new_out.append(line)
+        out_lines = new_out
+
+    work = "\n".join(out_lines)
+
     if role_hits:
         changes.append(f"精简 {role_hits} 处角色描述")
 
