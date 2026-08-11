@@ -327,25 +327,29 @@ async function depositRule(pair) {
 }
 
 /* ---------- v2.8 Prompt 简化器（可多选规则 + 保守/激进预设） ---------- */
-/* 规则 id 单一真源，必须与后端 skillforge.prompt_simplifier.ALL_RULE_IDS 逐字一致（共 17 类）。 */
+/* 规则 id 单一真源，必须与后端 skillforge.prompt_simplifier.ALL_RULE_IDS 逐字一致（共 19 类）。 */
 const SIMPLIFY_RULE_IDS = [
   "politeness","first_person","courtesy_boilerplate","role_prefix","empty_items","duplicate_lines","blank_lines",
   "meta_comment","hedging","redundant_adverbs","examples_trim",
   "logical_connector","filler_particles",
-  "duplicate_clauses","punctuation_compress","punctuation_normalize","semantic_compress",
+  "duplicate_clauses","punctuation_compress","punctuation_normalize",
+  "condition_clause","redundant_enum","semantic_compress",
 ];
 /* 保守 = 5 基础 + meta_comment + filler_particles + duplicate_clauses +
-          punctuation_compress + punctuation_normalize（**不含** logical_connector，Q2）。
+          punctuation_compress + punctuation_normalize + condition_clause + redundant_enum
+          （**不含** logical_connector / first_person 等更深类别，Q2）。
    激进 = 保守全集 ∪ first_person + courtesy_boilerplate + hedging + redundant_adverbs + examples_trim + logical_connector
-          （严格 ⊃，共 16 类；仅 semantic_compress 仍 explicit-only 不进预设，Q5）。
+          （严格 ⊃，共 18 类；仅 semantic_compress 仍 explicit-only 不进预设，Q5）。
+   evo2-15：condition_clause / redundant_enum（长文本增强）默认进两档预设，使长啰嗦需求散文
+            默认即可压掉「…的话」保留语与「再X/…操作」冗余枚举，解决「只能减少几个字」。
    模式差异落点：前端预设真正分层（aggressive ⊃ balanced + 更深类别），后端 PRESETS 不动（零回归）。
    后端 PRESETS（rules=None）始终保持 v2.5 的 5 基础类，零回归契约不受前端预设影响。 */
 const SIMPLIFY_PRESETS = {
-  balanced:   { mode: "balanced",   rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","filler_particles","duplicate_clauses","punctuation_compress","punctuation_normalize"] },
-  aggressive: { mode: "aggressive", rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","filler_particles","duplicate_clauses","punctuation_compress","punctuation_normalize","first_person","courtesy_boilerplate","hedging","redundant_adverbs","examples_trim","logical_connector"] },
+  balanced:   { mode: "balanced",   rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","filler_particles","duplicate_clauses","punctuation_compress","punctuation_normalize","condition_clause","redundant_enum"] },
+  aggressive: { mode: "aggressive", rules: ["politeness","role_prefix","empty_items","duplicate_lines","blank_lines","meta_comment","filler_particles","duplicate_clauses","punctuation_compress","punctuation_normalize","condition_clause","redundant_enum","first_person","courtesy_boilerplate","hedging","redundant_adverbs","examples_trim","logical_connector"] },
 };
 
-/* ---------- v2.11 规则说明元数据（可枚举展示 16 类，满足用户「全部列出来」） ---------- */
+/* ---------- v2.11 规则说明元数据（可枚举展示 19 类，满足用户「全部列出来」） ---------- */
 /* 每类：{id, name, group, criteria, remove_examples, keep_examples, explicit_only, in_balanced, in_aggressive}
    - explicit_only：是否仅显式勾选生效（不进后端 PRESETS）；first_person 等显式类为 true。
    - in_balanced / in_aggressive：按 SIMPLIFY_PRESETS（T03 Design A）填。 */
@@ -431,6 +435,17 @@ const RULE_META = [
     criteria: "折叠 2+ 连续相同 CJK 标点（，。！？；：、）为单个 + 规整标点周围 ASCII 空格；仅冗余归一化。",
     remove_examples: "「你好 ？？」→「你好？」；「你好 ， 世界」→「你好，世界」。",
     keep_examples: "单标点、引号、括号原样保留；……/—— 保留。",
+    explicit_only: true, in_balanced: true, in_aggressive: true },
+  { id: "condition_clause", name: "条件 / 保留语境 hedge 剪枝", group: "长文本增强",
+    criteria: "删除无信息量的前提/保留语短语（…的话 / 有充足真实依据的话 / 说实话 / 平心而论…），保留主干断言；删除后对残留孤立/连续逗号做最小规整。evo2-15 长文本增强。",
+    remove_examples: "「冲突检测真的可以实现的话可以保留」→「冲突检测可以保留」；「数据看板有充足真实依据的话可以保留」→「数据看板可以保留」。",
+    keep_examples: "承载指令语义的条件（如果…则…否则）保留；疑问句「吗」相关保留；受保护片段内不触碰。",
+    explicit_only: true, in_balanced: true, in_aggressive: true,
+    note: "与 courtesy_boilerplate 互补：courtesy 收纯礼貌套话（你好/谢谢/如果方便的话），本规则收更全的 caveat 集合（真的可以实现的话/有充足真实依据的话/说实话…），两者可同开、互不替代。" },
+  { id: "redundant_enum", name: "冗余枚举折叠", group: "长文本增强",
+    criteria: "针对斜杠分隔枚举：① 末项冗余名词尾（操作/处理/工作/动作…）剥除；② 若某项 = 前缀(再/重新/再次/重/复…) + 同组另一项 → 删较长冗余项。仅作用于 / 分隔短项枚举。evo2-15 长文本增强。",
+    remove_examples: "「清洗/还原/再清洗/追踪变更历程操作」→「清洗/还原/追踪变更历程」（删「再清洗」与末项「操作」）。",
+    keep_examples: "URL/代码内 / 受保护不触碰；无前缀冗余与尾名词的普通枚举（如 MCP/skill）原样保留。",
     explicit_only: true, in_balanced: true, in_aggressive: true },
   { id: "semantic_compress", name: "语义压缩（本地）", group: "进阶精简",
     criteria: "本地 embedding 近义/重复句折叠（能力1）+ 可选重要性剪枝（能力2）；仅显式勾选 + 需本地 embedding，不可用时静默跳过。",

@@ -9,8 +9,9 @@
   按 ``CANONICAL_ORDER`` 顺序执行启用类别 → 还原 → 统计。
 - **零回归硬指标**：``rules is None`` 时 ``PRESETS`` 逐字等于 v2.5 行为
   （balanced/aggressive 输出与旧版字符串相等）。新类别（meta_comment / hedging /
-  redundant_adverbs / examples_trim / logical_connector / filler_particles）仅当用户
-  显式勾选（下发 ``rules``）时生效，不进 ``PRESETS``，故老 API 调用方行为不变。
+  redundant_adverbs / examples_trim / logical_connector / filler_particles /
+  condition_clause / redundant_enum / semantic_compress）仅当用户显式勾选
+  （下发 ``rules``）时生效，不进 ``PRESETS``，故老 API 调用方行为不变。
 
 零新增 pip 依赖：仅 Python 标准库 + 现有 tokenizer。
 
@@ -44,7 +45,7 @@ ALL_RULE_IDS: list[str] = [
     "duplicate_clauses", "blank_lines", "meta_comment", "hedging",
     "redundant_adverbs", "examples_trim", "logical_connector",
     "filler_particles", "punctuation_compress", "punctuation_normalize",
-    "semantic_compress",
+    "condition_clause", "redundant_enum", "semantic_compress",
 ]
 
 # 类别执行顺序：前 5 位与 v2.5 执行顺序逐字一致，保障零回归（P0-3）。
@@ -55,7 +56,8 @@ CANONICAL_ORDER: list[str] = [
     "courtesy_boilerplate", "politeness", "first_person", "role_prefix",
     "meta_comment", "hedging", "redundant_adverbs", "examples_trim",
     "logical_connector", "filler_particles", "punctuation_compress",
-    "punctuation_normalize", "semantic_compress",
+    "punctuation_normalize", "condition_clause", "redundant_enum",
+    "semantic_compress",
 ]
 
 # 预设 ↔ rules 映射（仅用于 ``rules is None`` 的向后兼容路径）。
@@ -1008,6 +1010,122 @@ def _rule_punctuation_normalize(work: str, aggressive_like: bool, explicit: bool
     return folded, count
 
 
+# --------------------------------------------------------------------------- #
+# evo2-15 长文本增强（离线、显式-only、不进 PRESETS，零回归由结构保证）
+# --------------------------------------------------------------------------- #
+# 条件/保留语境 hedge 短语：删除后主干断言语义不变，纯前提/保留语噪声。
+# 这些短语与 courtesy_boilerplate 的「如果方便的话/如果可以的话」有字面重叠，
+# 但本表是独立、更全的 caveat 集合；运行顺序上 courtesy 先走（step 4.0），
+# 本规则随后对残留 caveat 补刀，互不重复计数（已删的这里 count=0）。
+_CAVEAT_HEDGES: list[str] = [
+    "如果方便的话", "如果可以的话", "可以的话", "如果有需要的话", "如果有需要",
+    "在可能的情况下", "在您方便的时候", "必要时", "如果有余力", "实在不行的话",
+    "条件允许的话", "有充足真实依据的话", "有真实依据的话", "真的可以实现的话",
+    "可以实现的话", "如果真的可以", "说实话", "说真的", "不夸张地说",
+    "客观地说", "平心而论",
+]
+
+# 冗余枚举：长文本里「清洗/还原/再清洗/…操作」这类斜杠枚举，含前缀冗余项与末尾 boilerplate 名词。
+_REDUNDANT_ENUM_PREFIXES = ("再", "重新", "再次", "重", "复", "再度", "又")
+_REDUNDANT_ENUM_TAILS = ("操作", "处理", "工作", "动作", "流程", "行为")
+# 比较核前缀：枚举首项（乃至各项）常带前置情态/及物链（可以/会/要/然后/进行/做/执行…），
+# 「然后可以进行清洗」的真实核是「清洗」。去重比较前递归剥除这些前缀得到核（输出仍保留原词）。
+_ENUM_CORE_PREFIXES = (
+    "可以", "会", "要", "想", "应该", "能", "能够", "去", "来", "就", "先", "然后",
+    "进行", "做", "执行", "支持", "允许", "用于",
+)
+# 仅匹配 / 分隔的短项枚举：首项必须是 ≤6 字且以 CJK 开头（避免把「skill 然后可以进行清洗」
+# 整段吞进首项、或跨 ASCII 词拆分）；后续项 ≤14 字；遇 CJK 标点/换行即止。
+# 受保护片段（代码/URL）此前已占位，不会进入；MCP/skill 等 ASCII 起手枚举因 CJK 起手约束不误触。
+_ENUM_GROUP_RE = re.compile(
+    r"(?=[一-鿿])([^/，。！？\n]{1,6}/)(?:[^/，。！？\n]{1,14}/)*[^/，。！？\n]{1,14}"
+)
+
+
+def _enum_core(it: str) -> str:
+    """递归剥除前置情态/及物前缀，得到枚举项的语义核（如「然后可以进行清洗」→「清洗」）。"""
+    s = it
+    while True:
+        stripped = False
+        for p in _ENUM_CORE_PREFIXES:
+            if s.startswith(p) and len(s) > len(p):
+                s = s[len(p):]
+                stripped = True
+                break
+        if not stripped:
+            break
+    return s
+
+
+def _rule_condition_clause(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
+    """条件 / 保留语境 hedge 剪枝（explicit-only）。
+
+    删除无信息量的前提/保留语短语（…的话 / 有充足真实依据的话 / 说实话 / …），
+    保留主干断言（「冲突检测真的可以实现的话可以保留」→「冲突检测可以保留」）。
+    删除后对残留的孤立/连续逗号做最小规整。
+    """
+    if not explicit:
+        return work, 0
+    cnt = 0
+    for ph in _CAVEAT_HEDGES:
+        c = work.count(ph)
+        if c:
+            work = work.replace(ph, "")
+            cnt += c
+    if cnt:
+        # 最小规整：句首/句末孤立逗号、连续逗号（不触碰有语义标点）
+        work = re.sub(r"(?<=[。！？\n])[，,]+", "", work)
+        work = re.sub(r"[，,]+$", "", work)
+        work = re.sub(r"[，,]{2,}", "，", work)
+    return work, cnt
+
+
+def _rule_redundant_enum(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
+    """冗余枚举折叠（explicit-only）。
+
+    针对斜杠分隔枚举：① 末项冗余名词尾（操作/处理/工作…）剥除；
+    ② 若某项 = 前缀(再/重新/再次…) + 同组另一项 → 删较长冗余项。
+    仅作用于 / 分隔的短项枚举，绝不触碰受保护片段（代码/URL 已占位）。
+    """
+    if not explicit:
+        return work, 0
+    cnt = 0
+
+    def _clean_group(g: str) -> str:
+        nonlocal cnt
+        items = g.split("/")
+        # ① 剥除末项冗余尾名词（仅当项 > 尾且去除后非空）
+        cleaned: list[str] = []
+        for it in items:
+            for tail in _REDUNDANT_ENUM_TAILS:
+                if it.endswith(tail) and len(it) > len(tail):
+                    it2 = it[: -len(tail)]
+                    if it2:
+                        it = it2
+                        cnt += 1
+                        break
+            cleaned.append(it)
+        # ② 前缀冗余去重：比较核递归剥除前置情态/及物链（然后进行清洗→清洗），
+        #    若 cores[b] == prefix + cores[a] → 删 b（较长冗余）；输出用原词，保留「进行」等动词。
+        cores = [_enum_core(it) for it in cleaned]
+        keep: list[str] = []
+        for i, b in enumerate(cleaned):
+            redundant = False
+            for j, a in enumerate(cleaned):
+                if i == j:
+                    continue
+                for p in _REDUNDANT_ENUM_PREFIXES:
+                    if cores[i] == p + cores[j] and len(cores[i]) > len(cores[j]):
+                        redundant = True
+                        cnt += 1
+                        break
+            if not redundant:
+                keep.append(b)
+        return "/".join(keep)
+
+    return _ENUM_GROUP_RE.sub(lambda m: _clean_group(m.group(0)), work), cnt
+
+
 def _rule_first_person(work: str, aggressive_like: bool, explicit: bool = False) -> tuple[str, int]:
     """第一人称自指冗余移除（explicit-only 由调用方控制；不进 PRESETS）。
 
@@ -1251,6 +1369,15 @@ def simplify_prompt(text: str, mode: str = "balanced", rules: list[str] | None =
         work, n = _rule_punctuation_normalize(work, aggressive_like, explicit)
         if n:
             changes.append(_tag(f"归一化 {n} 处标点冗余", "punctuation_normalize", explicit))
+    # 8.2) evo2-15 长文本增强（条件 hedge 剪枝 / 冗余枚举折叠；永不进 PRESETS，仅 explicit）
+    if "condition_clause" in rule_ids:
+        work, n = _rule_condition_clause(work, aggressive_like, explicit)
+        if n:
+            changes.append(_tag(f"剪枝 {n} 处条件/保留语境 hedge", "condition_clause", explicit))
+    if "redundant_enum" in rule_ids:
+        work, n = _rule_redundant_enum(work, aggressive_like, explicit)
+        if n:
+            changes.append(_tag(f"折叠 {n} 处冗余枚举项", "redundant_enum", explicit))
     # 8.1) evo2-9 新增类别（本地语义压缩；永不进 PRESETS，仅 explicit；embedding 不可用则跳过）
     if "semantic_compress" in rule_ids:
         th = _semantic_threshold_clamp(semantic_threshold)

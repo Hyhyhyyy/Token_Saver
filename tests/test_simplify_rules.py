@@ -28,7 +28,7 @@ def test_all_rule_ids_exact():
         "duplicate_clauses", "blank_lines", "meta_comment", "hedging",
         "redundant_adverbs", "examples_trim", "logical_connector",
         "filler_particles", "punctuation_compress", "punctuation_normalize",
-        "semantic_compress",
+        "condition_clause", "redundant_enum", "semantic_compress",
     ]
 
 
