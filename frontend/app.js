@@ -60,6 +60,29 @@ function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden");
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add("hidden"), 2200);
 }
+
+/* 使用说明首弹 + 顶栏帮助按钮唤起 */
+function initOnboarding() {
+  const modal = $("#onboardingModal");
+  if (!modal) return;
+  const close = () => {
+    modal.classList.add("hidden");
+    try { localStorage.setItem("skillforge_onboarding_v2_4", "1"); } catch (e) {}
+  };
+  modal.querySelectorAll("[data-close]").forEach((el) => (el.onclick = close));
+  const start = $("#onboardingStartBtn");
+  if (start) start.onclick = close;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+  const help = $("#nav-help");
+  if (help) help.onclick = () => modal.classList.remove("hidden");
+  const seen = (() => {
+    try { return localStorage.getItem("skillforge_onboarding_v2_4"); } catch (e) { return null; }
+  })();
+  if (!seen) modal.classList.remove("hidden");
+}
+
 async function api(path, opts) {
   const r = await fetch(path, opts);
   if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
