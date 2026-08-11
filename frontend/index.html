@@ -81,22 +81,25 @@
     </div>
   </div>
 
-  <!-- 简化视图（v2.5 · Prompt 简化器，新增默认落地功能） -->
+  <!-- 简化视图（v2.5 · Prompt 简化器，输入左 / 输出右，固定一屏） -->
   <section id="view-simplify" class="view">
-    <main class="detail" style="width:100%">
-      <div class="card">
-        <h3>Prompt 简化器 · 一键压缩你的提示词</h3>
-        <p class="note">粘贴或拖拽 .txt 文件到下方文本框，<b>勾选你想去掉的内容</b>（可自由组合），点击「一键简化」即可去除冗余、合并重复指令、保留代码块与 URL，并给出 token 节省统计。变更列表会标注每条变更所属的规则类别。</p>
+    <main class="detail simplify-detail">
+      <div class="simplify-left card">
+        <div class="simplify-head">
+          <h3>原始 Prompt</h3>
+          <p class="note">粘贴、拖拽 .txt 文件，或直接在下方输入。勾选要去掉的规则，点击「一键简化」。</p>
+        </div>
         <textarea id="simplifyInput" class="simplify-input" placeholder="粘贴 prompt 文本，或拖拽 .txt 文件到此处"></textarea>
         <div class="simplify-options">
           <div class="preset-row">
-            <button type="button" class="btn preset" data-preset="balanced" id="presetBalanced">🛡 保守（默认）</button>
+            <button type="button" class="btn preset" data-preset="balanced" id="presetBalanced">🛡 保守</button>
             <button type="button" class="btn preset" data-preset="aggressive" id="presetAggressive">🔥 激进</button>
-            <span class="note small">保守=默认更强（含语气词过滤，<b>不含</b>逻辑词）；激进=更强压缩（进阶全开 + 逻辑词 + 第一人称自指 + 弱语气 + 激进子步骤）</span>
+            <button class="btn" id="btnSimplify">⚡ 一键简化</button>
+            <span id="simplifyErr" class="err"></span>
           </div>
           <div class="rule-groups">
             <div class="rule-group">
-              <div class="rg-title">基础裁剪（默认启用）</div>
+              <div class="rg-title">基础裁剪</div>
               <label class="chk"><input type="checkbox" data-rule="politeness"> 礼貌 / 冗余填充词</label>
               <label class="chk"><input type="checkbox" data-rule="role_prefix"> 冗长角色描述</label>
               <label class="chk"><input type="checkbox" data-rule="empty_items"> 空列表项</label>
@@ -104,27 +107,22 @@
               <label class="chk"><input type="checkbox" data-rule="blank_lines"> 空行折叠</label>
             </div>
             <div class="rule-group">
-              <div class="rg-title">进阶精简（可选）</div>
-              <label class="chk"><input type="checkbox" data-rule="first_person"> 第一人称自指冗余<span class="chk-hint">（给我/和我/我想/依我看…）</span></label>
-              <label class="chk"><input type="checkbox" data-rule="courtesy_boilerplate"> 客套 / 寒暄冗余<span class="chk-hint">（你好/谢谢/抱歉/辛苦了/仅供参考…）</span></label>
+              <div class="rg-title">进阶精简</div>
+              <label class="chk"><input type="checkbox" data-rule="first_person"> 第一人称自指<span class="chk-hint">（给我/我想/依我看…）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="courtesy_boilerplate"> 客套 / 寒暄<span class="chk-hint">（你好/谢谢/辛苦了…）</span></label>
               <label class="chk"><input type="checkbox" data-rule="meta_comment"> 元评论 / 过渡句</label>
-              <label class="chk"><input type="checkbox" data-rule="logical_connector"> 逻辑 / 过渡连接词<span class="chk-hint">（因此/所以/然而/首先…）</span></label>
-              <label class="chk"><input type="checkbox" data-rule="filler_particles"> 句末语气助词<span class="chk-hint">（啊/呢/吧/嘛…；保留「吗」）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="logical_connector"> 逻辑连接词<span class="chk-hint">（因此/然而/首先…）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="filler_particles"> 句末语气助词<span class="chk-hint">（啊/呢/吧…）</span></label>
               <label class="chk"><input type="checkbox" data-rule="hedging"> 弱语气词</label>
               <label class="chk"><input type="checkbox" data-rule="redundant_adverbs"> 冗余副词</label>
               <label class="chk"><input type="checkbox" data-rule="examples_trim"> 过长示例压缩</label>
-              <label class="chk"><input type="checkbox" data-rule="duplicate_clauses"> 跨句重复子句去重<span class="chk-hint">（因此…因此…）</span></label>
-              <label class="chk"><input type="checkbox" data-rule="punctuation_compress"> 连续标点折叠<span class="chk-hint">（？？？→？）</span></label>
-              <label class="chk"><input type="checkbox" data-rule="punctuation_normalize"> 标点归一化<span class="chk-hint">（，。！！→，。！；去除标点旁空格）</span></label>
-              <label class="chk"><input type="checkbox" data-rule="semantic_compress"> 语义压缩（本地·近义句折叠）<span class="chk-hint">（需本地 embedding；不可用则自动跳过）</span></label>
-              <div class="sem-opts" style="margin:6px 0 2px 22px;font-size:13px;color:#555">
-                <label style="display:inline-flex;gap:8px;align-items:center">相似度阈值
-                  <input type="range" id="semThreshold" min="0.80" max="0.98" step="0.01" value="0.90" style="width:160px" aria-label="语义压缩相似度阈值">
-                  <span id="semThresholdVal">0.90</span>
-                </label>
-                <label style="display:inline-flex;gap:6px;align-items:center;margin-left:14px">
-                  <input type="checkbox" id="semPrune"> 启用重要性剪枝（二级）
-                </label>
+              <label class="chk"><input type="checkbox" data-rule="duplicate_clauses"> 跨句重复子句<span class="chk-hint">（因此…因此…）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="punctuation_compress"> 连续标点折叠<span class="chk-hint">（???→?）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="punctuation_normalize"> 标点归一化<span class="chk-hint">（全角空格等）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="semantic_compress"> 语义压缩<span class="chk-hint">（近义句折叠）</span></label>
+              <div class="sem-opts">
+                <label>相似度阈值 <input type="range" id="semThreshold" min="0.80" max="0.98" step="0.01" value="0.90" aria-label="语义压缩相似度阈值"> <span id="semThresholdVal">0.90</span></label>
+                <label><input type="checkbox" id="semPrune"> 重要性剪枝</label>
               </div>
             </div>
             <script>
@@ -135,18 +133,21 @@
               })();
             </script>
           </div>
-          <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px;align-items:center">
-            <button class="btn" id="btnSimplify">⚡ 一键简化</button>
-            <span id="simplifyErr" class="err"></span>
-          </div>
         </div>
         <details class="rule-meta" id="ruleMetaPanel">
-          <summary>规则说明（16 类可枚举 · 点击展开）</summary>
+          <summary>规则说明（16 类）</summary>
           <div id="ruleMetaBody" class="rule-meta-body"></div>
         </details>
       </div>
-      <div id="simplifyOutput" class="card hidden" style="margin-top:16px">
-        <h3>简化结果</h3>
+
+      <div class="simplify-right card">
+        <div class="simplify-head">
+          <h3>简化结果</h3>
+          <div class="row" style="margin:0;gap:8px">
+            <button class="btn" id="btnCopySimplify">📋 复制</button>
+            <button class="btn secondary" id="btnExportSimplify">⬇ 导出 .txt</button>
+          </div>
+        </div>
         <textarea id="simplifyResult" class="simplify-input" readonly placeholder="简化结果将显示在这里"></textarea>
         <div class="stats-row">
           <div class="stat"><div class="big" id="simOrigTokens">0</div><div class="l">原始 token</div></div>
@@ -154,11 +155,7 @@
           <div class="stat"><div class="big down" id="simSavedTokens">0</div><div class="l">节省 token</div></div>
           <div class="stat"><div class="big down" id="simSavedPct">0%</div><div class="l">节省百分比</div></div>
         </div>
-        <div class="row" style="margin-top:12px">
-          <button class="btn" id="btnCopySimplify">📋 复制</button>
-          <button class="btn secondary" id="btnExportSimplify">⬇ 导出 .txt</button>
-        </div>
-        <div id="simplifyChanges" class="changes" style="margin-top:12px"><b>变更：</b><ul></ul></div>
+        <div id="simplifyChanges" class="changes"><b>变更：</b><ul></ul></div>
       </div>
     </main>
   </section>
@@ -174,7 +171,25 @@
     </aside>
 
     <main class="detail">
-      <div id="empty" class="empty">从左侧选择一个技能开始优化 →</div>
+      <div class="page-guide" id="assetsGuide">
+        <div class="pg-title"><span class="pg-emoji">📦</span> 技能资产 · 给每个 Skill 做体检与瘦身</div>
+        <div class="pg-desc">
+          这里扫描你本地所有 <span class="term" data-tip="存放于 skills/ 目录、含 SKILL.md 的技能包。每个技能在每次对话时都会把 description 常驻塞进模型上下文。">Skill 技能包</span>，
+          给出 <b>健康度评分</b> 并定位可优化的冗余。目标：让每个技能更规范、更省 token。
+        </div>
+        <div class="pg-steps">
+          <span class="pg-step"><span class="pg-num">1</span> 在左侧列表选一个技能</span>
+          <span class="pg-step"><span class="pg-num">2</span> 看「概览」健康度与「校验」问题</span>
+          <span class="pg-step"><span class="pg-num">3</span> 进「清洗」一键压缩并写回</span>
+          <span class="pg-step"><span class="pg-num">4</span> 长期累积见「追踪」</span>
+        </div>
+      </div>
+
+      <div id="empty" class="guide-empty">
+        <div class="ge-emoji">👈</div>
+        <div class="ge-title">从左侧选一个技能开始</div>
+        <div class="ge-text">点击左侧列表里的任意技能，即可查看它的<b>健康度评分</b>、<b>校验问题</b>，并在「清洗」页一键压缩写回。<br>列表为空？把技能放进本地 <b>skills/</b> 目录后刷新即可。</div>
+      </div>
 
       <div id="detailPanel" class="hidden">
         <div class="detail-head">
@@ -206,6 +221,19 @@
   <!-- 仿真沙盘视图 -->
   <section id="view-sim" class="view hidden">
     <main class="detail" style="width:100%">
+      <div class="page-guide">
+        <div class="pg-title"><span class="pg-emoji">🧪</span> 仿真沙盘 · 把「压缩省了多少」折算成钱和时间</div>
+        <div class="pg-desc">
+          两个实验：<b>调度反事实模拟</b>验证「压缩后会不会选错技能」；<b>成本/延迟仿真</b>把节省的
+          <span class="term" data-tip="模型每处理一轮对话都要把全部技能的 description 放进上下文，这部分 token 每轮都计费、都占用延迟。压缩它就等于每轮都省钱省时。">常驻 token</span>
+          折算成金额与延迟。都是<b>离线估算</b>，不真实调用模型。
+        </div>
+        <div class="pg-steps">
+          <span class="pg-step"><span class="pg-num">1</span> 选「调度反事实」→ 运行模拟看选对率</span>
+          <span class="pg-step"><span class="pg-num">2</span> 选「成本/延迟」→ 拖滑块设场景 → 运行仿真</span>
+          <span class="pg-step"><span class="pg-num">3</span> 想自定义单价点「编辑定价表」</span>
+        </div>
+      </div>
       <div class="tabs" id="simTabs">
         <button class="tab active" data-stab="schedule">调度反事实模拟</button>
         <button class="tab" data-stab="cost">成本/延迟仿真</button>
@@ -218,6 +246,19 @@
   <!-- 冲突检测视图 -->
   <section id="view-conflicts" class="view hidden">
     <main class="detail" style="width:100%">
+      <div class="page-guide">
+        <div class="pg-title"><span class="pg-emoji">⚠️</span> 冲突检测 · 找出「长得太像、容易选混」的技能</div>
+        <div class="pg-desc">
+          两两比较所有技能的 <span class="term" data-tip="写在 SKILL.md 顶部、用于让模型判断「该调用哪个技能」的简短说明。相似度过高会让模型选错。">description</span> 语义相似度。
+          相似度超过阈值的一对，模型可能<b>调错技能</b>。可把高频冲突「沉淀为新规则」永久记录。
+        </div>
+        <div class="pg-steps">
+          <span class="pg-step"><span class="pg-num">1</span> 选后端（默认 local-tfidf，零依赖）</span>
+          <span class="pg-step"><span class="pg-num">2</span> 拖「相似度阈值」滑块</span>
+          <span class="pg-step"><span class="pg-num">3</span> 点「重新计算」看冲突对</span>
+          <span class="pg-step"><span class="pg-num">4</span> 对有问题的点「沉淀为新规则」</span>
+        </div>
+      </div>
       <div id="conflictsPanel"></div>
     </main>
   </section>
@@ -225,6 +266,17 @@
   <!-- 看板视图 -->
   <section id="view-dashboard" class="view hidden">
     <div class="dash">
+      <div class="page-guide">
+        <div class="pg-title"><span class="pg-emoji">📊</span> 数据看板 · SkillForge 的全局成绩单</div>
+        <div class="pg-desc">
+          汇总所有技能的优化成果：<b>已优化数 / 累计省 token / 每轮常驻节省</b>。下方趋势与排行需<b>先去「资产」页运行清洗并应用</b>，数据才会累积显示。
+        </div>
+        <div class="pg-steps">
+          <span class="pg-step"><span class="pg-num">1</span> 看顶部 4 个 KPI 总览</span>
+          <span class="pg-step"><span class="pg-num">2</span> 看「节省趋势 / 排行」两张图</span>
+          <span class="pg-step"><span class="pg-num">3</span> 底部是标准规范模板，照此写技能最稳</span>
+        </div>
+      </div>
       <div class="kpi-row" id="kpiRow"></div>
       <div class="dash-grid">
         <div class="card">
@@ -247,6 +299,21 @@
   <!-- 进化看板视图（v2.1 + v2.2 · 自主进化引擎 + 进化账本 + 趋势可视化 + 自动循环） -->
   <section id="view-evolve" class="view hidden">
     <main class="detail" style="width:100%">
+      <div class="page-guide">
+        <div class="pg-title"><span class="pg-emoji">🧬</span> 进化 · 让 SkillForge 自动越用越聪明</div>
+        <div class="pg-desc">
+          核心循环：拿一批 <span class="term" data-tip="人工标注的「问题 → 正确技能」样例，用于检验打分器是否选对。先「🌱 播种 Gold 样本」才有评估基准。">Gold 样本</span>
+          检验打分器，命中不够好就自动调预算、沉淀冲突规则。
+          <span class="term" data-tip="每一次自动/手动进化动作（播种/回调/沉淀/校准）都会写入「进化账本」时间线，可审计谁、何时、改了谁、前后值、触发源。">进化账本</span>
+          保证全程可追溯。
+        </div>
+        <div class="pg-steps">
+          <span class="pg-step"><span class="pg-num">1</span> 先点「🌱 播种 Gold 样本」建基准</span>
+          <span class="pg-step"><span class="pg-num">2</span> 点「▶ 运行自主进化」跑一轮</span>
+          <span class="pg-step"><span class="pg-num">3</span> 开「⚙ 自动进化」让它后台周期自跑</span>
+          <span class="pg-step"><span class="pg-num">4</span> 看趋势图与账本验证效果</span>
+        </div>
+      </div>
       <div class="kpi-row" id="evolveKpiRow"></div>
 
       <div class="row" style="align-items:center;justify-content:space-between">

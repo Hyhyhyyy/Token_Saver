@@ -73,11 +73,9 @@ async function init() {
   $("#meta").innerHTML =
     `分词器：${esc(health.tokenizer)}<br>已扫描技能：${list.count} 个`;
   renderSidebar();
-  bindNav();
-  bindTabs();
   initSimplifier();     // v2.5：绑定简化器拖拽/按钮（一次绑定）
   bindAnomalyClick();   // B-4：事件委托（一次绑定，不阻塞首屏）
-  if (list.count) selectSkill(list.skills[0].name);
+  if (list.count) selectSkill(list.skills[0].name).catch(() => {});
   // 使用说明：首次进入自动弹（不阻塞首屏渲染）
   initOnboarding();
 }
@@ -85,6 +83,14 @@ async function init() {
 function renderSidebar() {
   $("#skillCount").textContent = state.skills.length;
   const ul = $("#skillList"); ul.innerHTML = "";
+  if (!state.skills.length) {
+    ul.innerHTML = `<div class="guide-empty" style="padding:32px 12px">
+      <div class="ge-emoji">🗂️</div>
+      <div class="ge-title">还没扫描到技能</div>
+      <div class="ge-text">SkillForge 会扫描本地 <b>skills/</b> 目录下所有带 <b>SKILL.md</b> 的技能包。<br>把技能放进该目录，然后<strong>刷新页面</strong>即可在此显示。</div>
+    </div>`;
+    return;
+  }
   for (const s of state.skills) {
     const li = el("li", { class: "skill-item", "data-id": s.name });
     li.innerHTML =
@@ -229,7 +235,11 @@ async function renderDashboard() {
 
   // 趋势图
   const series = stats.series || [];
-  if (!series.length) $("#chartSeries").innerHTML = `<div style="color:var(--muted)">尚无优化记录，运行清洗并应用后会累积数据。</div>`;
+  if (!series.length) $("#chartSeries").innerHTML = `<div class="guide-empty" style="padding:28px 14px">
+    <div class="ge-emoji">📈</div>
+    <div class="ge-title">趋势图还空着</div>
+    <div class="ge-text">去 <b>技能资产</b> 页选一个技能 → 进「清洗」→ 点「<b>应用并写回文件</b>」，每次应用都会在这里累积一条按天的节省记录。</div>
+  </div>`;
   else {
     const max = Math.max(1, ...series.map((s) => s.saved));
     $("#chartSeries").innerHTML = series.map((s) =>
@@ -237,7 +247,11 @@ async function renderDashboard() {
     ).join("");
   }
   const lb = stats.leaderboard || [];
-  if (!lb.length) $("#chartLeader").innerHTML = `<div style="color:var(--muted)">暂无数据。</div>`;
+  if (!lb.length) $("#chartLeader").innerHTML = `<div class="guide-empty" style="padding:28px 14px">
+    <div class="ge-emoji">🏆</div>
+    <div class="ge-title">排行还空着</div>
+    <div class="ge-text">同样需要先到 <b>技能资产</b> 页运行清洗并应用，才会按技能统计节省排行。</div>
+  </div>`;
   else {
     const max = Math.max(1, ...lb.map((s) => s.saved));
     $("#chartLeader").innerHTML = lb.map((s) =>
@@ -836,7 +850,6 @@ async function doSimplify() {
     const ul = $("#simplifyChanges ul");
     const changes = (r.changes && r.changes.length) ? r.changes : ["无需变更"];
     ul.innerHTML = changes.map((c) => `<li>${esc(c)}</li>`).join("");
-    $("#simplifyOutput").classList.remove("hidden");
   } catch (e) {
     $("#simplifyErr").textContent = "简化失败：" + e.message;
   } finally {
@@ -860,12 +873,12 @@ function exportSimplify() {
 /* ---------- 导航/标签 ---------- */
 function showView(name) {
   const map = {
-    simplify: ["nav-simplify", "view-simplify"],
-    assets: ["nav-assets", "view-assets"],
-    sim: ["nav-sim", "view-sim"],
-    conflicts: ["nav-conflicts", "view-conflicts"],
-    dashboard: ["nav-dashboard", "view-dashboard"],
-    evolve: ["nav-evolve", "view-evolve"],
+    simplify: ["#nav-simplify", "#view-simplify"],
+    assets: ["#nav-assets", "#view-assets"],
+    sim: ["#nav-sim", "#view-sim"],
+    conflicts: ["#nav-conflicts", "#view-conflicts"],
+    dashboard: ["#nav-dashboard", "#view-dashboard"],
+    evolve: ["#nav-evolve", "#view-evolve"],
   };
   for (const [n, [btn, view]] of Object.entries(map)) {
     $(btn).classList.toggle("active", n === name);
@@ -1408,4 +1421,7 @@ function bindAnomalyClick() {
   });
 }
 
+// 先同步绑定 UI 事件（导航、资产详情 Tab），再异步拉数据；即使 init() 失败，Tab 也能点。
+bindNav();
+bindTabs();
 init().catch((e) => { $("#meta").textContent = "初始化失败：" + e.message; });
