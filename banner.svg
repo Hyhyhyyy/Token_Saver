@@ -1,40 +1,59 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 380" role="img" aria-label="Token_Saver" font-family="'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#06231f"/>
-      <stop offset="1" stop-color="#0c3b34"/>
+      <stop offset="0" stop-color="#134e4a"/>
+      <stop offset="0.5" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#0369a1"/>
     </linearGradient>
     <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#2dd4bf"/>
-      <stop offset="1" stop-color="#fbbf24"/>
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#5eead4"/>
     </linearGradient>
+    <linearGradient id="coin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5eead4" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#5eead4" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="0.5" stop-color="#2dd4bf" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#5eead4" stop-opacity="0.22"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
   <rect width="1280" height="380" fill="url(#bg)"/>
-  <circle cx="960" cy="190" r="152" fill="#2dd4bf" opacity="0.07"/>
-  <circle cx="960" cy="190" r="152" fill="none" stroke="#2dd4bf" stroke-width="2" opacity="0.18"/>
+  <ellipse cx="980" cy="200" rx="200" ry="165" fill="url(#glow)"/>
+  <circle cx="1066" cy="120" r="6" fill="#fde68a" opacity="0.9"/>
+  <circle cx="900" cy="284" r="5" fill="#7dd3fc" opacity="0.85"/>
+  <circle cx="1090" cy="278" r="4" fill="#ccfbf1" opacity="0.7"/>
   <rect x="-220" y="0" width="220" height="380" fill="url(#beam)">
     <animate attributeName="x" values="-220;1300;-220" dur="7s" repeatCount="indefinite"/>
   </rect>
-  <g transform="translate(960,190)">
-    <circle r="118" fill="#041a17" stroke="#2dd4bf" stroke-width="8"/>
-    <path d="M70,0 L35,61 L-35,61 L-70,0 L-35,-61 L35,-61 Z" fill="#0c3b34" stroke="#2dd4bf" stroke-width="8"/>
-    <line x1="0" y1="-36" x2="0" y2="22" stroke="#fbbf24" stroke-width="9" stroke-linecap="round"/>
-    <path d="M-13,10 L0,28 L13,10 Z" fill="#fbbf24"/>
+  <g transform="translate(980,190)">
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="-10 0 0;10 0 0;-10 0 0" dur="3.4s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+      <circle r="72" fill="url(#coin)" stroke="#fbbf24" stroke-width="9"/>
+      <circle r="54" fill="none" stroke="#fbbf24" stroke-width="4" opacity="0.7"/>
+      <circle cx="-22" cy="-14" r="9" fill="#ffffff"/>
+      <circle cx="22" cy="-14" r="9" fill="#ffffff"/>
+      <circle cx="-22" cy="-12" r="4.5" fill="#064e3b"/>
+      <circle cx="22" cy="-12" r="4.5" fill="#064e3b"/>
+      <path d="M-18,8 Q0,26 18,8" fill="none" stroke="#fef9c3" stroke-width="6" stroke-linecap="round"/>
+      <line x1="0" y1="32" x2="0" y2="54" stroke="#fbbf24" stroke-width="8" stroke-linecap="round"/>
+      <path d="M-12,44 L0,58 L12,44 Z" fill="#fbbf24"/>
+    </g>
   </g>
-  <line x1="72" y1="170" x2="440" y2="170" stroke="#fbbf24" stroke-width="6" stroke-linecap="round" stroke-dasharray="368" stroke-dashoffset="368">
+  <line x1="72" y1="172" x2="440" y2="172" stroke="#5eead4" stroke-width="6" stroke-linecap="round" stroke-dasharray="368" stroke-dashoffset="368">
     <animate attributeName="stroke-dashoffset" values="368;0;0;368" dur="6s" repeatCount="indefinite"/>
   </line>
   <text x="70" y="150" font-size="60" font-weight="800" fill="url(#title)">Token_Saver</text>
-  <text x="72" y="198" font-size="22" fill="#bdf3e8" opacity="0.9">Prompt 压缩 · Token 成本看板</text>
+  <text x="72" y="198" font-size="22" fill="#d4faf2" opacity="0.92">Prompt 压缩 · Token 成本看板</text>
   <g font-size="16" font-weight="600">
-    <rect x="72" y="220" width="108" height="34" rx="17" fill="#2dd4bf" opacity="0.18" stroke="#5eead4" stroke-width="2"/>
-    <text x="126" y="242" fill="#d4faf2" text-anchor="middle">压缩</text>
-    <rect x="192" y="220" width="108" height="34" rx="17" fill="#fbbf24" opacity="0.16" stroke="#fbbf24" stroke-width="2"/>
+    <rect x="72" y="220" width="108" height="34" rx="17" fill="#2dd4bf" opacity="0.20" stroke="#5eead4" stroke-width="2"/>
+    <text x="126" y="242" fill="#e3fbf6" text-anchor="middle">压缩</text>
+    <rect x="192" y="220" width="108" height="34" rx="17" fill="#fbbf24" opacity="0.18" stroke="#fbbf24" stroke-width="2"/>
     <text x="246" y="242" fill="#fde9b0" text-anchor="middle">看板</text>
   </g>
 </svg>
