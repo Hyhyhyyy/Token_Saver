@@ -36,11 +36,6 @@
       <animateTransform attributeName="transform" type="rotate" values="-10 0 0;10 0 0;-10 0 0" dur="3.4s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
       <circle r="72" fill="url(#coin)" stroke="#fbbf24" stroke-width="9"/>
       <circle r="54" fill="none" stroke="#fbbf24" stroke-width="4" opacity="0.7"/>
-      <circle cx="-22" cy="-14" r="9" fill="#ffffff"/>
-      <circle cx="22" cy="-14" r="9" fill="#ffffff"/>
-      <circle cx="-22" cy="-12" r="4.5" fill="#064e3b"/>
-      <circle cx="22" cy="-12" r="4.5" fill="#064e3b"/>
-      <path d="M-18,8 Q0,26 18,8" fill="none" stroke="#fef9c3" stroke-width="6" stroke-linecap="round"/>
       <line x1="0" y1="32" x2="0" y2="54" stroke="#fbbf24" stroke-width="8" stroke-linecap="round"/>
       <path d="M-12,44 L0,58 L12,44 Z" fill="#fbbf24"/>
     </g>
