@@ -183,6 +183,10 @@ class EmbeddingBackend(VectorizerBackend):
     def similarity(self, a: str, b: str) -> float:
         return _cosine_vec(self._emb(a), self._emb(b))
 
+    def vectorize(self, text: str) -> list[float]:
+        """公开稠密向量接口（供语义压缩等调用；内部复用 _emb 与实例缓存）。"""
+        return self._emb(text)
+
 
 def _load_vectorizer_config() -> dict:
     if VECTORIZER_PATH.exists():

@@ -238,7 +238,15 @@ async def simplify(request: Request) -> dict:
     rules = body.get("rules", None)
     if not isinstance(rules, list):
         rules = None
-    return simplify_prompt(text, mode=mode, rules=rules)
+    # evo2-9：可选语义压缩参数（缺省/非法静默回落默认，绝不 500）
+    semantic_threshold = body.get("semantic_threshold", None)
+    semantic_prune = body.get("semantic_prune", False)
+    if not isinstance(semantic_prune, bool):
+        semantic_prune = False
+    return simplify_prompt(
+        text, mode=mode, rules=rules,
+        semantic_threshold=semantic_threshold, semantic_prune=semantic_prune,
+    )
 
 
 @app.post("/api/track")

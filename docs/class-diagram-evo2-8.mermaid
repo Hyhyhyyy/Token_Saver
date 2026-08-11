@@ -1,0 +1,80 @@
+classDiagram
+    direction TB
+
+    class PromptSimplifier {
+        +simplify_prompt(text, mode, rules) dict
+        -explicit : bool
+        -rule_ids : list~str~
+        -aggressive_like : bool
+        +_protect(text, store) str
+        +_protect_words(text, store, words) str
+        +_restore(text, store) str
+    }
+
+    class RuleRegistry {
+        <<singleton>>
+        +ALL_RULE_IDS : list~str~  %% +2: duplicate_clauses, punctuation_compress → 13
+        +CANONICAL_ORDER : list~str~
+        +PRESETS : dict  %% 不变，仅 5 基础类
+        +RULE_REGISTRY : dict
+    }
+
+    class RuleFn {
+        <<interface>>
+        +__call__(work, aggressive_like, explicit) (str, int)
+    }
+
+    class DuplicateLinesRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -保持 v2.5 整行归一化去重（恒生效）
+    }
+    class DuplicateClausesRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -跨句字面完全重复子句去重（explicit-only，不进 PRESETS）
+        -三分支阈值：整句 / ≥4字长重复 / 句末冗余尾词 + 非紧邻排除
+        -保护片段外运算（按 \x00..\x00 切分）
+    }
+    class PunctuationCompressRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -折叠 3+ 连续 。！？.!? → 单
+        -排除 …/——/ASCII ...（集不含 ASCII `.`）
+    }
+    class PolitenessRule {
+        +__call__(work, aggressive_like, explicit) (str, int)
+        -v2.7 explicit 叠加 _CN_FILLERS_EXPANDED（沿用）
+    }
+    class OtherRules {
+        +role_prefix / empty_items / blank_lines / meta_comment / hedging / redundant_adverbs / examples_trim / logical_connector / filler_particles（v2.7 沿用）
+    }
+
+    class Lexicons {
+        <<const module>>
+        +_DUP_CLAUSE_MIN_LEN : int  %% =4
+        +_SENT_END_RE : Pattern
+        +_PUNCT_FOLD_RE : Pattern  %% ([。！？!?])\1{2,}
+        +_CONDITIONAL_MARKERS / _LOGICAL_CONNECTORS / _FILLER_PARTICLES / _CN_FILLERS_EXPANDED / _HEDGING / _NEG_LOOKBEHIND（v2.7 沿用）
+    }
+
+    class ProtectStore {
+        +items : list~str~
+        +P_token : \x00P~n~\x00
+        +K_token : \x00K~n~\x00
+        +local_sentinel : \x01K~n~\x01  %% 规则内局部（v2.7）
+    }
+
+    PromptSimplifier ..> RuleRegistry : 查 ALL_RULE_IDS/CANONICAL_ORDER
+    PromptSimplifier ..> ProtectStore : protect/restore
+    RuleRegistry "1" *-- "13" RuleFn : 注册（含 2 新增）
+    RuleFn <|-- DuplicateLinesRule
+    RuleFn <|-- DuplicateClausesRule
+    RuleFn <|-- PunctuationCompressRule
+    RuleFn <|-- PolitenessRule
+    RuleFn <|-- OtherRules
+
+    DuplicateClausesRule ..> Lexicons : 读 _DUP_CLAUSE_MIN_LEN/_SENT_END_RE
+    DuplicateClausesRule ..> ProtectStore : 按 \x00..\x00 切分，片段内去重（不跨 token）
+    PunctuationCompressRule ..> Lexicons : 读 _PUNCT_FOLD_RE
+    PolitenessRule ..> Lexicons : 读 _CN_FILLERS_EXPANDED
+
+    note for RuleRegistry "PRESETS 不变（仅 5 基础类）\n duplicate_clauses / punctuation_compress 永不进 PRESETS\n→ rules=None 结构性零回归"
+    note for DuplicateClausesRule "方案 B：独立 id，explicit-only\n不进 PRESETS ⇒ rules=None 永不触发"

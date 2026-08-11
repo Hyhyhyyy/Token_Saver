@@ -92,7 +92,7 @@
           <div class="preset-row">
             <button type="button" class="btn preset" data-preset="balanced" id="presetBalanced">🛡 保守（默认）</button>
             <button type="button" class="btn preset" data-preset="aggressive" id="presetAggressive">🔥 激进</button>
-            <span class="note small">保守=默认更强（已含逻辑词/语气词过滤）；激进=更强压缩（进阶精简全开 + 激进子步骤）</span>
+            <span class="note small">保守=默认更强（含语气词过滤，<b>不含</b>逻辑词）；激进=更强压缩（进阶全开 + 逻辑词 + 第一人称自指 + 弱语气 + 激进子步骤）</span>
           </div>
           <div class="rule-groups">
             <div class="rule-group">
@@ -105,19 +105,45 @@
             </div>
             <div class="rule-group">
               <div class="rg-title">进阶精简（可选）</div>
+              <label class="chk"><input type="checkbox" data-rule="first_person"> 第一人称自指冗余<span class="chk-hint">（给我/和我/我想/依我看…）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="courtesy_boilerplate"> 客套 / 寒暄冗余<span class="chk-hint">（你好/谢谢/抱歉/辛苦了/仅供参考…）</span></label>
               <label class="chk"><input type="checkbox" data-rule="meta_comment"> 元评论 / 过渡句</label>
               <label class="chk"><input type="checkbox" data-rule="logical_connector"> 逻辑 / 过渡连接词<span class="chk-hint">（因此/所以/然而/首先…）</span></label>
               <label class="chk"><input type="checkbox" data-rule="filler_particles"> 句末语气助词<span class="chk-hint">（啊/呢/吧/嘛…；保留「吗」）</span></label>
               <label class="chk"><input type="checkbox" data-rule="hedging"> 弱语气词</label>
               <label class="chk"><input type="checkbox" data-rule="redundant_adverbs"> 冗余副词</label>
               <label class="chk"><input type="checkbox" data-rule="examples_trim"> 过长示例压缩</label>
+              <label class="chk"><input type="checkbox" data-rule="duplicate_clauses"> 跨句重复子句去重<span class="chk-hint">（因此…因此…）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="punctuation_compress"> 连续标点折叠<span class="chk-hint">（？？？→？）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="punctuation_normalize"> 标点归一化<span class="chk-hint">（，。！！→，。！；去除标点旁空格）</span></label>
+              <label class="chk"><input type="checkbox" data-rule="semantic_compress"> 语义压缩（本地·近义句折叠）<span class="chk-hint">（需本地 embedding；不可用则自动跳过）</span></label>
+              <div class="sem-opts" style="margin:6px 0 2px 22px;font-size:13px;color:#555">
+                <label style="display:inline-flex;gap:8px;align-items:center">相似度阈值
+                  <input type="range" id="semThreshold" min="0.80" max="0.98" step="0.01" value="0.90" style="width:160px" aria-label="语义压缩相似度阈值">
+                  <span id="semThresholdVal">0.90</span>
+                </label>
+                <label style="display:inline-flex;gap:6px;align-items:center;margin-left:14px">
+                  <input type="checkbox" id="semPrune"> 启用重要性剪枝（二级）
+                </label>
+              </div>
             </div>
+            <script>
+              (function () {
+                var el = document.getElementById("semThreshold");
+                var v = document.getElementById("semThresholdVal");
+                if (el && v) el.addEventListener("input", function () { v.textContent = parseFloat(el.value).toFixed(2); });
+              })();
+            </script>
           </div>
           <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px;align-items:center">
             <button class="btn" id="btnSimplify">⚡ 一键简化</button>
             <span id="simplifyErr" class="err"></span>
           </div>
         </div>
+        <details class="rule-meta" id="ruleMetaPanel">
+          <summary>规则说明（16 类可枚举 · 点击展开）</summary>
+          <div id="ruleMetaBody" class="rule-meta-body"></div>
+        </details>
       </div>
       <div id="simplifyOutput" class="card hidden" style="margin-top:16px">
         <h3>简化结果</h3>

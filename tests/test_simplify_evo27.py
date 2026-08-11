@@ -88,11 +88,14 @@ def test_politeness_explicit_only():
 
 
 def test_hedging_strengthened():
-    """hedging 强化：多字安全词移除；单字「应」刻意排除，不误伤应用/响应。"""
+    """hedging 强化：多字安全词移除；单字「应」刻意排除，不误伤应用/响应。
+
+    evo2-11 深化（P0-3）：「应该」已从 hedging 移除——指令强约束必须保留。
+    """
     text = "你应该估计一下，难免出错，大体上可行。应用此配置响应请求。"
     on = simplify_prompt(text, mode="balanced", rules=["hedging"])
     out = on["simplified_text"]
-    assert "应该" not in out
+    assert "应该" in out           # 强约束保护：保留
     assert "估计" not in out
     assert "难免" not in out
     assert "大体上" not in out

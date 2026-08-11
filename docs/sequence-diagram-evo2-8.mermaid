@@ -1,0 +1,56 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant FE as 前端 doSimplify (app.js)
+    participant API as /api/simplify (server.py)
+    participant SP as simplify_prompt
+    participant P as _protect/_restore
+    participant DL as _rule_duplicate_lines
+    participant DC as _rule_duplicate_clauses
+    participant PC as _rule_punctuation_compress
+    participant OTH as 其余 _rule_*(politeness/logical_connector/...)
+
+    User->>FE: 输入 prompt，勾选规则（默认含 duplicate_clauses/punctuation_compress）
+    FE->>API: POST {text, mode, rules}  %% rules 非空 → explicit=True
+
+    API->>API: rules 非 list → None（契约兜底）；否则透传
+    API->>SP: simplify_prompt(text, mode, rules)
+
+    SP->>SP: explicit = (rules is not None)
+    SP->>SP: _resolve_rule_ids(rules, mode) → (rule_ids, mode, aggressive_like)
+    Note over SP: rules=None → PRESETS(5 基础类) → 绝不含 duplicate_clauses / punctuation_compress
+
+    SP->>P: _protect(original)  %% 冻结代码块/URL/行内代码/安全词 → \x00P/\x00K
+
+    alt "empty_items" in rule_ids
+        SP->>SP: _rule_empty_items(work, aggressive_like, explicit)
+    end
+    SP->>DL: _rule_duplicate_lines(work, aggressive_like, explicit)  %% v2.5 行为不变
+    DL-->>SP: work, n
+
+    opt "duplicate_clauses" in rule_ids  %% 仅显式勾选（不进 PRESETS）
+        SP->>DC: _rule_duplicate_clauses(work, aggressive_like, explicit)
+        Note over DC: 按 \x00..\x00 切分为非保护片段<br/>三分支阈值（整句/≥4字长重复/句末尾词）+ 非紧邻排除<br/>保留一个完整副本（否定/条件/代码不丢）
+        DC-->>SP: work, n
+    end
+
+    alt "blank_lines" in rule_ids
+        SP->>SP: _rule_blank_lines(work, aggressive_like, explicit)  %% 首折
+    end
+    SP->>OTH: politeness / role_prefix / meta_comment / hedging / redundant_adverbs / examples_trim / logical_connector / filler_particles（均 v2.7 沿用）
+    OTH-->>SP: work, n
+
+    opt "punctuation_compress" in rule_ids  %% 仅显式勾选（不进 PRESETS），置末
+        SP->>PC: _rule_punctuation_compress(work, aggressive_like, explicit)
+        Note over PC: ([。！？!?])\1{2,} → 单<br/>排除 …/——/ASCII ...（集不含 `.`）；受保护 token 内不触
+        PC-->>SP: work, n
+    end
+
+    SP->>P: _restore(work)  %% 还原 \x00P/\x00K 保护片段（逐字节不变）
+    P-->>SP: simplified
+    SP->>SP: 统计 token / changes（_tag 仅 explicit 附 [category]）
+    SP-->>API: dict{simplified_text, tokens_saved, changes, ...}
+    API-->>FE: JSON
+    FE-->>User: 渲染简化结果 + 变更列表
+
+    Note over SP,PC: 关键不变量<br/>rules=None 路径 explicit=False → PRESETS 仅 5 类 → duplicate_clauses/punctuation_compress 永不运行 → 输出逐字等于 v2.5
