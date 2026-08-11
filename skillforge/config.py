@@ -61,6 +61,8 @@ PRICING_PATH = DATA_DIR / "pricing.json"
 VECTORIZER_PATH = DATA_DIR / "vectorizer.json"
 BUDGET_OVERRIDES_PATH = DATA_DIR / "skill_budget_overrides.json"
 CUSTOM_RULES_PATH = DATA_DIR / "custom_rules.json"
+# 个性化口癖清单（用户自定义的常写、白费 token 的短语；简化时默认消除）
+PERSONAL_PHRASES_PATH = DATA_DIR / "personal_phrases.json"
 
 # 语义冲突检测阈值（UI slider 0.5–0.95，默认 0.7）
 CONFLICT_DEFAULT_THRESHOLD = 0.7          # local-tfidf 档（v2.1 沿用）

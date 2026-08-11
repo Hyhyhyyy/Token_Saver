@@ -18,10 +18,9 @@
     <nav class="nav">
       <button id="nav-simplify" class="nav-btn active">简化</button>
       <button id="nav-assets" class="nav-btn">技能资产</button>
-      <button id="nav-sim" class="nav-btn">仿真沙盘</button>
       <button id="nav-conflicts" class="nav-btn">冲突检测</button>
       <button id="nav-dashboard" class="nav-btn">数据看板</button>
-      <button id="nav-evolve" class="nav-btn">进化</button>
+      <button id="nav-personal" class="nav-btn">个性化</button>
       <button id="nav-help" class="nav-btn help-btn" type="button" title="使用说明">❓ 使用说明</button>
     </nav>
     <div class="meta" id="meta">加载中…</div>
@@ -48,32 +47,16 @@
           <ul>
             <li><b>简化</b>：粘贴 / 拖拽 prompt → 一键压缩并给出 token 节省</li>
             <li><b>技能资产</b>：浏览 / 校验你的技能仓库</li>
-            <li><b>仿真沙盘</b>：反事实调度 / 成本延迟仿真</li>
             <li><b>冲突检测</b>：技能间规则冲突与消解</li>
             <li><b>数据看板</b>：KPI 与覆盖度总览</li>
-            <li><b>进化</b>：自主进化闭环 + 趋势 + 账本</li>
+            <li><b>个性化</b>：写入你常写、白费 token 的口癖，简化时默认消除</li>
           </ul>
         </section>
         <section>
-          <h4>③ 如何运行「自主进化」</h4>
+          <h4>③ 个性化口癖怎么用</h4>
           <ul>
-            <li>进化视图点「▶ 运行自主进化」手动跑一轮</li>
-            <li>或开「⚙ 自动进化」开关，后台周期自跑</li>
-          </ul>
-        </section>
-        <section>
-          <h4>④ 后端来源 与 自动进化开关</h4>
-          <ul>
-            <li>后端：<b>local-st</b>(本地 OpenAI 兼容) / <b>local-tfidf</b> / <b>openai</b></li>
-            <li>「自动进化」开 = 后台周期自跑；关 = 仅手动</li>
-          </ul>
-        </section>
-        <section>
-          <h4>⑤ 进化账本 / 趋势图 怎么读</h4>
-          <ul>
-            <li>账本：每次进化动作的时间线（含外部变化记录）</li>
-            <li>趋势图：Gold 覆盖度 / F1 选对率 随时间连续演进（红点=异常，可点击看详情）</li>
-            <li>「上次外部变化」：最近一次技能集增 / 删 / 改的清单与时间</li>
+            <li>进「个性化」页，把你常写、却白费 token 的话（如「请」「麻烦你」）写进清单</li>
+            <li>之后每次在「简化」页压缩，都会<b>默认自动消除</b>这些口癖，无需反复勾选规则</li>
           </ul>
         </section>
       </div>
@@ -218,30 +201,7 @@
     </main>
   </section>
 
-  <!-- 仿真沙盘视图 -->
-  <section id="view-sim" class="view hidden">
-    <main class="detail" style="width:100%">
-      <div class="page-guide">
-        <div class="pg-title"><span class="pg-emoji">🧪</span> 仿真沙盘 · 把「压缩省了多少」折算成钱和时间</div>
-        <div class="pg-desc">
-          两个实验：<b>调度反事实模拟</b>验证「压缩后会不会选错技能」；<b>成本/延迟仿真</b>把节省的
-          <span class="term" data-tip="模型每处理一轮对话都要把全部技能的 description 放进上下文，这部分 token 每轮都计费、都占用延迟。压缩它就等于每轮都省钱省时。">常驻 token</span>
-          折算成金额与延迟。都是<b>离线估算</b>，不真实调用模型。
-        </div>
-        <div class="pg-steps">
-          <span class="pg-step"><span class="pg-num">1</span> 选「调度反事实」→ 运行模拟看选对率</span>
-          <span class="pg-step"><span class="pg-num">2</span> 选「成本/延迟」→ 拖滑块设场景 → 运行仿真</span>
-          <span class="pg-step"><span class="pg-num">3</span> 想自定义单价点「编辑定价表」</span>
-        </div>
-      </div>
-      <div class="tabs" id="simTabs">
-        <button class="tab active" data-stab="schedule">调度反事实模拟</button>
-        <button class="tab" data-stab="cost">成本/延迟仿真</button>
-      </div>
-      <div id="sim-schedule" class="tabpane"></div>
-      <div id="sim-cost" class="tabpane hidden"></div>
-    </main>
-  </section>
+  <!-- 仿真沙盘已移除（v2.14）：原「仿真沙盘」视图已下线，相关 API 路由一并删除。 -->
 
   <!-- 冲突检测视图 -->
   <section id="view-conflicts" class="view hidden">
@@ -296,96 +256,41 @@
     </div>
   </section>
 
-  <!-- 进化看板视图（v2.1 + v2.2 · 自主进化引擎 + 进化账本 + 趋势可视化 + 自动循环） -->
-  <section id="view-evolve" class="view hidden">
+  <!-- 个性化口癖视图（v2.14 · 用户自定义常写、白费 token 的口癖，简化时默认消除） -->
+  <section id="view-personal" class="view hidden">
     <main class="detail" style="width:100%">
       <div class="page-guide">
-        <div class="pg-title"><span class="pg-emoji">🧬</span> 进化 · 让 SkillForge 自动越用越聪明</div>
+        <div class="pg-title"><span class="pg-emoji">🗣️</span> 个性化 · 清掉你常写、却白费 token 的口癖</div>
         <div class="pg-desc">
-          核心循环：拿一批 <span class="term" data-tip="人工标注的「问题 → 正确技能」样例，用于检验打分器是否选对。先「🌱 播种 Gold 样本」才有评估基准。">Gold 样本</span>
-          检验打分器，命中不够好就自动调预算、沉淀冲突规则。
-          <span class="term" data-tip="每一次自动/手动进化动作（播种/回调/沉淀/校准）都会写入「进化账本」时间线，可审计谁、何时、改了谁、前后值、触发源。">进化账本</span>
-          保证全程可追溯。
+          每个人写 prompt 都有<b>习惯性的多余词</b>——比如开口就是「<span class="term" data-tip="请 / 麻烦你 / 帮我 / 辛苦了 … 这些词对模型执行任务几乎无信息量，却每轮都占 token。">请</span>」、动辄「麻烦你」、结尾「谢谢」。
+          把它们写进下面的清单，<b>以后每次简化都会默认自动消除</b>，不用反复手动勾选规则。
         </div>
         <div class="pg-steps">
-          <span class="pg-step"><span class="pg-num">1</span> 先点「🌱 播种 Gold 样本」建基准</span>
-          <span class="pg-step"><span class="pg-num">2</span> 点「▶ 运行自主进化」跑一轮</span>
-          <span class="pg-step"><span class="pg-num">3</span> 开「⚙ 自动进化」让它后台周期自跑</span>
-          <span class="pg-step"><span class="pg-num">4</span> 看趋势图与账本验证效果</span>
-        </div>
-      </div>
-      <div class="kpi-row" id="evolveKpiRow"></div>
-
-      <div class="row" style="align-items:center;justify-content:space-between">
-        <div class="row" style="margin-top:0;gap:10px;flex-wrap:wrap">
-          <div id="autoStatus" class="auto-badge off">○ 自动进化：暂停</div>
-          <span id="backendSource" class="backend-source">当前后端：检测中…</span>
-        </div>
-        <div class="row" style="margin-top:0">
-          <button class="btn secondary" id="evolveAutoBtn">⚙ 自动进化：开</button>
-          <button class="btn secondary" id="backendProbeBtn">🔄 刷新后端探测</button>
-        </div>
-      </div>
-
-      <div id="lastExternalChange" class="last-external-change">★ 上次外部变化：加载中…</div>
-
-      <div class="card trend-chart">
-        <h3>进化趋势 · Gold 覆盖度 / F1 选对率</h3>
-        <div id="trendChart">
-          <div id="trendGold" class="trend-svg"></div>
-          <div id="trendF1" class="trend-svg"></div>
+          <span class="pg-step"><span class="pg-num">1</span> 在输入框写一个口癖（如「请」）</span>
+          <span class="pg-step"><span class="pg-num">2</span> 点「添加」入库</span>
+          <span class="pg-step"><span class="pg-num">3</span> 去「简化」页粘贴 prompt，结果自动去口癖</span>
+          <span class="pg-step"><span class="pg-num">4</span> 不想要了点「删除」</span>
         </div>
       </div>
 
       <div class="card">
-        <h3>进化账本 · 自进化动作时间线</h3>
-        <div class="row ledger-filter">
-          <button class="btn" id="evolveBootstrapBtn">🌱 播种 Gold 样本</button>
-          <button class="btn" id="evolveRunBtn">▶ 运行自主进化</button>
-          <button class="btn" id="evolveReportBtn">📤 导出进化报告</button>
-          <select id="ledgerType" style="margin-left:8px">
-            <option value="">全部类型</option>
-            <option value="gold_seed">gold_seed</option>
-            <option value="budget_auto_recall">budget_auto_recall</option>
-            <option value="conflict_rule_deposit">conflict_rule_deposit</option>
-            <option value="budget_manual_override">budget_manual_override</option>
-            <option value="calibration">calibration</option>
-            <option value="skill_signature_change">skill_signature_change</option>
-          </select>
-          <select id="ledgerWindow" style="margin-left:8px">
-            <option value="">全部时间</option>
-            <option value="today">今日</option>
-            <option value="week">本周</option>
-          </select>
-          <select id="ledgerLimit" style="margin-left:auto">
-            <option value="20">最近 20 条</option>
-            <option value="50" selected>最近 50 条</option>
-            <option value="100">最近 100 条</option>
-            <option value="200">最近 200 条</option>
-          </select>
+        <h3>我的口癖清单</h3>
+        <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="phraseInput" class="text-input" placeholder="写一个常写、白费 token 的口癖，如「请」「麻烦你」" style="flex:1;min-width:240px" />
+          <button class="btn" id="addPhraseBtn">＋ 添加</button>
         </div>
-        <div class="note">GOAL-3 可追溯：每次自进化动作（gold 播种 / 预算自动回调 / 冲突规则沉淀 / 校准）都会写入进化账本，可在此审计「谁、何时、改了谁、前后值、触发源」。可按类型 / 时间窗筛选。</div>
-      </div>
-
-      <div id="ledger-timeline"></div>
-
-      <div class="card">
-        <h3>🔬 打分器校准（local-tfidf vs embedding）</h3>
-        <div class="row">
-          <button class="btn secondary" id="evolveCalibrateBtn">运行校准</button>
-          <label style="font-size:13px;color:var(--muted)">采样对数
-            <input type="number" id="calibLimit" value="30" min="1" max="200" style="width:64px">
-          </label>
+        <div class="note">提示：口癖会<b>原样匹配</b>并删除（删除后周围多余空格会自动合并）。例如添加「请」后，「请帮我写代码」→「帮我写代码」。它与规则清洗互不冲突，可叠加生效；简化页默认应用，无需每次手动开关。</div>
+        <div id="phraseList" class="phrase-list"></div>
+        <div id="phraseEmpty" class="guide-empty" style="padding:24px 12px;display:none">
+          <div class="ge-emoji">🪶</div>
+          <div class="ge-title">清单还是空的</div>
+          <div class="ge-text">把你想消掉的口头禅写进上面的输入框，点「添加」即可。添加后，`简化`页会自动帮你清掉它们。</div>
         </div>
-        <div id="calibration-panel" class="note">点击「运行校准」查看 local-tfidf 与 embedding 的打分分歧（需配置 embedding 后端 api_url 或 local-st 本地端点）。</div>
       </div>
     </main>
   </section>
 
   <div id="toast" class="toast hidden"></div>
-
-  <!-- B-4 异常详情浮层（点击趋势图异常点弹出，可定位账本条目） -->
-  <div id="anomalyDetail" class="anomaly-detail hidden"></div>
 
   <script src="/app.js"></script>
 </body>

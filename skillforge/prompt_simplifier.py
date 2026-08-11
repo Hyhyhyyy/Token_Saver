@@ -1117,7 +1117,8 @@ def _tag(change: str, category: str, explicit: bool) -> str:
 # --------------------------------------------------------------------------- #
 def simplify_prompt(text: str, mode: str = "balanced", rules: list[str] | None = None,
                     semantic_threshold: float = _SEMANTIC_THRESHOLD_DEFAULT,
-                    semantic_prune: bool = False) -> dict:
+                    semantic_prune: bool = False,
+                    personal_phrases: list[str] | None = None) -> dict:
     """简化通用 prompt 文本，返回含 token 节省统计的 dict。
 
     参数:
@@ -1133,6 +1134,9 @@ def simplify_prompt(text: str, mode: str = "balanced", rules: list[str] | None =
             （余弦相似度 ≥ 阈值判语义重复）。默认 0.90，越界/非法静默回落默认（绝不 500）。
         semantic_prune: 仅当 ``rules`` 含 ``semantic_compress`` 时生效的重要性剪枝二级开关
             （默认 False）。embedding 不可用或后端非稠密时语义压缩整体静默跳过，输出不变。
+        personal_phrases: 用户个性化口癖清单（如「请」「麻烦你」）。非 None 且非空时，
+            在规则管线结束后额外消除这些短语（默认开启）。该层独立于规则注册表，不影响
+            ``rules=None`` 零回归契约（仅当调用方显式传入 personal_phrases 时生效）。
 
     硬契约：``rules is None`` 时后端仅走 ``PRESETS``（5 基础类），``simplified_text`` 必须
     逐字等于 v2.5；任何新增行为（含 semantic_compress）不得改变该路径输出。
@@ -1258,6 +1262,19 @@ def simplify_prompt(text: str, mode: str = "balanced", rules: list[str] | None =
 
     # 7) 还原（先放回归位保护片段，再按 blank_lines 是否启用决定折叠策略）
     work = _restore(work, protected)
+    # 7.0) 个性化口癖消除（独立于规则注册表，默认开启；仅当显式传入 personal_phrases 时生效）
+    if personal_phrases:
+        removed_p = 0
+        for ph in personal_phrases:
+            if not ph:
+                continue
+            cnt = work.count(ph)
+            if cnt:
+                work = work.replace(ph, "")
+                removed_p += cnt
+        if removed_p:
+            work = re.sub(r" {2,}", " ", work)   # 消除移除后残留的多余空格
+            changes.append(f"移除 {removed_p} 处个性化口癖")
     if "blank_lines" in rule_ids:
         # 启用：折叠连续空行 + 行首尾空白清理（v2.5 默认行为）
         work = _collapse_blank_lines(work).strip()

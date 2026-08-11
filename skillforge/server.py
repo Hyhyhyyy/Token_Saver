@@ -21,6 +21,8 @@ from .prompt_simplifier import simplify_prompt
 from .spec import STANDARD_VERSION, SKILL_TEMPLATE, DESC_TEMPLATE, DESC_EXAMPLE, get_validation_rules
 from . import config
 from . import budget, gold, pricing, custom_rules, simulator, simbank, evolve, auto_loop, skill_signature
+from . import personal
+from .personal import load_personal_phrases, add_personal_phrase, remove_personal_phrase
 from .scorer import get_vectorizer, _load_vectorizer_config, conflict_default_threshold
 from .scorer import (
     resolve_backend_source,
@@ -243,10 +245,50 @@ async def simplify(request: Request) -> dict:
     semantic_prune = body.get("semantic_prune", False)
     if not isinstance(semantic_prune, bool):
         semantic_prune = False
+    # 个性化口癖：默认开启（apply_personal 缺省 True）；关闭则跳过。
+    apply_personal = body.get("apply_personal", True)
+    if not isinstance(apply_personal, bool):
+        apply_personal = True
+    personal = load_personal_phrases() if apply_personal else []
     return simplify_prompt(
         text, mode=mode, rules=rules,
         semantic_threshold=semantic_threshold, semantic_prune=semantic_prune,
+        personal_phrases=personal if personal else None,
     )
+
+
+# ============================ 个性化口癖（v2.14 新功能） ============================
+
+@app.get("/api/personal/phrases")
+def get_personal_phrases() -> dict:
+    """读取个性化口癖清单。"""
+    return {"phrases": load_personal_phrases()}
+
+
+@app.post("/api/personal/phrases")
+async def post_personal_phrase(request: Request) -> dict:
+    """新增一条口癖（自动 trim / 去重）。返回最新清单与是否新增。"""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    phrases, added = add_personal_phrase(str(body.get("phrase", "")))
+    return {"phrases": phrases, "added": added}
+
+
+@app.delete("/api/personal/phrases")
+async def delete_personal_phrase(request: Request) -> dict:
+    """删除一条口癖（按精确匹配）。返回最新清单。"""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    phrases = remove_personal_phrase(str(body.get("phrase", "")))
+    return {"phrases": phrases}
 
 
 @app.post("/api/track")
@@ -273,84 +315,9 @@ def skill_tracking(skill_id: str):
     return get_skill_stats(skill_id)
 
 
-# ============================ F1 调度反事实模拟 ============================
-
-@app.get("/api/sim/gold")
-def get_gold_samples():
-    samples = gold.get_gold()
-    return {"count": len(samples), "samples": samples}
-
-
-@app.post("/api/sim/gold")
-async def post_gold_samples(request: Request):
-    data = await request.json()
-    samples = data.get("samples")
-    if not isinstance(samples, list):
-        raise HTTPException(400, "samples 必须为数组")
-    try:
-        out = gold.set_gold(samples)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return {"count": len(out), "samples": out}
-
-
-@app.post("/api/sim/schedule")
-async def post_schedule(request: Request):
-    # 稳健解析请求体：空 body / 非 JSON / 非对象 时均回退为 {}，
-    # 避免空 POST（如 `curl -X POST .../schedule`）触发 JSONDecodeError 而 500
-    try:
-        data = await request.json()
-    except Exception:  # noqa: BLE001
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    use_llm = bool(data.get("use_llm", False))
-    backend = data.get("backend")
-    try:
-        result = simulator.run_schedule_sim(backend_name=backend, use_llm=use_llm)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(500, f"调度模拟失败：{e}")
-    return result
-
-
-# ============================ F2 成本/延迟仿真 ============================
-
-@app.get("/api/sim/pricing")
-def get_pricing():
-    return pricing.get_pricing()
-
-
-@app.put("/api/sim/pricing")
-async def put_pricing(request: Request):
-    data = await request.json()
-    models = data.get("models")
-    if not isinstance(models, list) or not models:
-        raise HTTPException(400, "models 必须为非空数组")
-    out = pricing.save_pricing(models)
-    return {"models": out["models"], "as_of": out["as_of"], "disclaimer": out["disclaimer"]}
-
-
-@app.post("/api/sim/cost")
-async def post_cost(request: Request):
-    data = await request.json()
-    model = data.get("model")
-    if not model:
-        raise HTTPException(400, "缺少 model")
-    try:
-        skills_count = int(data.get("skills_count", 0) or 0)
-        turns = int(data.get("turns", 0) or 0)
-        rb = int(data.get("resident_tokens_before", 0) or 0)
-        ra = data.get("resident_tokens_after")
-        ra = int(ra) if ra is not None else None
-    except (TypeError, ValueError):
-        raise HTTPException(400, "参数必须为整数")
-    if turns <= 0 or rb < 0:
-        raise HTTPException(400, "turns 必须 > 0，resident_tokens_before 必须 ≥ 0")
-    try:
-        result = simulator.run_cost_sim(model, skills_count, turns, rb, ra)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return result
+# ============================ 仿真沙盘已移除（v2.14） ============================
+# 原 F1 调度反事实模拟 / F2 成本延迟仿真 路由（/api/sim/gold|schedule|pricing|cost）
+# 已删除；冲突检测（F3）保留于下方 /api/conflicts。
 
 
 # ============================ F3 语义冲突检测 ============================
@@ -470,37 +437,8 @@ async def put_vectorizer_config(request: Request):
     return resp
 
 
-@app.put("/api/sim/budget")
-async def put_sim_budget(request: Request):
-    data = await request.json()
-    skill_id = data.get("skill_id")
-    if not skill_id:
-        raise HTTPException(400, "缺少 skill_id")
-    target = data.get("target")
-    target = int(target) if target is not None else None
-    before = budget.effective_target(skill_id)
-    try:
-        entry = budget.manual_recall(skill_id, target)
-    except (TypeError, ValueError):
-        raise HTTPException(400, "target 必须为整数")
-    # 落点补记账本（E1）：手动回调压缩预算
-    simbank.log_evolution(
-        "budget_manual_override", skill_id, str(before), str(entry["target"]),
-        "manual", "手动回调压缩预算",
-    )
-    return {
-        "skill_id": skill_id,
-        "target": entry["target"],
-        "regress_count": entry.get("regress_count", 0),
-    }
-
-
-@app.get("/api/sim/trends")
-def get_sim_trends():
-    return {
-        "schedule": simbank.get_schedule_trend(),
-        "cost": simbank.get_cost_trend(),
-    }
+# ============================ 仿真沙盘预算/趋势路由已移除（v2.14） ============================
+# 原 /api/sim/budget、/api/sim/trends 已删除（仿真沙盘整体下线）。
 
 
 # ============================ 自进化引擎（v2.1 · 进化账本 / 自主进化） ============================

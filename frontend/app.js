@@ -74,7 +74,6 @@ async function init() {
     `分词器：${esc(health.tokenizer)}<br>已扫描技能：${list.count} 个`;
   renderSidebar();
   initSimplifier();     // v2.5：绑定简化器拖拽/按钮（一次绑定）
-  bindAnomalyClick();   // B-4：事件委托（一次绑定，不阻塞首屏）
   if (list.count) selectSkill(list.skills[0].name).catch(() => {});
   // 使用说明：首次进入自动弹（不阻塞首屏渲染）
   initOnboarding();
@@ -213,7 +212,7 @@ async function renderTrack() {
 
 /* ---------- 看板 ---------- */
 async function renderDashboard() {
-  const [stats, spec, trends] = await Promise.all([api("/api/stats"), api("/api/spec"), api("/api/sim/trends")]);
+  const [stats, spec] = await Promise.all([api("/api/stats"), api("/api/spec")]);
   $("#specVer").textContent = spec.standard_version;
   $("#specTpl").textContent = spec.skill_template;
   $("#specRules").innerHTML = spec.rules.map((r) =>
@@ -230,8 +229,6 @@ async function renderDashboard() {
   $("#kpiRow").innerHTML = kpis.map(([l, v]) =>
     `<div class="kpi"><div class="v" data-count="${v}">0</div><div class="l">${l}</div></div>`
   ).join("");
-
-  // 仿真趋势数据已随调度/成本模拟写入 SQLite（见 /api/sim/trends），此处保留读取以备扩展看板卡片。
 
   // 趋势图
   const series = stats.series || [];
@@ -263,222 +260,6 @@ async function renderDashboard() {
   requestAnimationFrame(() => {
     document.querySelectorAll(".dash .bar-fill").forEach((b) => (b.style.width = (b.dataset.w || 0) + "%"));
   });
-}
-
-/* ---------- 仿真沙盘 ---------- */
-function renderSim() {
-  renderSchedulePanel();
-  renderCostPanel();
-  document.querySelectorAll("#simTabs .tab").forEach((t) =>
-    t.onclick = () => {
-      const stab = t.dataset.stab;
-      document.querySelectorAll("#simTabs .tab").forEach((x) => x.classList.toggle("active", x === t));
-      $("#sim-schedule").classList.toggle("hidden", stab !== "schedule");
-      $("#sim-cost").classList.toggle("hidden", stab !== "cost");
-    }
-  );
-}
-
-async function renderSchedulePanel() {
-  const g = await api("/api/sim/gold");
-  const cfg = await api("/api/config/vectorizer");
-  $("#sim-schedule").innerHTML = `
-    <div class="card">
-      <h3>调度反事实模拟 · 量化「压缩是否伤调度」</h3>
-      <div class="kv"><span class="k">Gold 样本</span><span>内置 <b>${g.count}</b> 条（query→正确技能）</span></div>
-      <div class="kv"><span class="k">打分后端</span><span>
-        <label><input type="radio" name="schedBackend" value="local-tfidf" ${cfg.backend!=="embedding"?"checked":""}> local-tfidf（零依赖）</label>
-        <label style="margin-left:10px"><input type="radio" name="schedBackend" value="embedding" ${cfg.backend==="embedding"?"checked":""}> embedding-API</label>
-      </span></div>
-      <div class="row">
-        <button class="btn" id="runScheduleBtn">▶ 运行模拟</button>
-        <button class="btn secondary" id="importGoldBtn">导入JSON</button>
-        <button class="btn secondary" id="exportGoldBtn">导出</button>
-        <input type="file" id="goldFile" accept="application/json" class="hidden">
-      </div>
-      <div class="note">控制变量：前后两次仅 description 版本不同，其余（打分器/gold/技能集）完全一致。模拟为离线估计，非真实调度。</div>
-    </div>
-    <div id="scheduleResult"></div>`;
-  $("#runScheduleBtn").onclick = runScheduleSim;
-  $("#exportGoldBtn").onclick = exportGold;
-  $("#importGoldBtn").onclick = () => $("#goldFile").click();
-  $("#goldFile").onchange = importGold;
-}
-
-async function runScheduleSim() {
-  const backend = document.querySelector('input[name="schedBackend"]:checked')?.value;
-  $("#scheduleResult").innerHTML = `<div class="card"><div class="note">模拟运行中…</div></div>`;
-  try {
-    const r = await api("/api/sim/schedule", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ backend }),
-    });
-    const accB = Math.round(r.accuracy_before * 100);
-    const accA = Math.round(r.accuracy_after * 100);
-    const delta = accA - accB;
-    const deltaTxt = delta === 0 ? "持平" : (delta > 0 ? `↑ +${delta}pt` : `↓ ${delta}pt`);
-    const perRows = r.per_skill.map((p) => `
-      <div class="bar-row">
-        <span class="nm">${esc(p.skill_id)}</span>
-        <span class="mono">${p.hits_before} → ${p.hits_after}</span>
-        <span class="badge ${p.status==="regressed"?"invalid":p.status==="improved"?"valid":"warning"}">${p.status==="regressed"?"回归":p.status==="improved"?"提升":"不变"}</span>
-      </div>`).join("") || "<div class='note'>无命中过 gold 的技能。</div>";
-    const regRows = r.regressed_skills.map((rg) => `
-      <div class="conflict-card">
-        <b>⚠ 回归技能：${esc(rg.skill_id)}</b>
-        <span class="mono">（命中 ${rg.hits_before} → ${rg.hits_after}）</span>
-        <div class="sug">${esc(rg.suggestion)}</div>
-        <button class="btn secondary" data-recall="${esc(rg.skill_id)}">↩ 回调该技能压缩预算</button>
-      </div>`).join("") || "<div class='note'>无回归技能。</div>";
-    $("#scheduleResult").innerHTML = `
-      <div class="card">
-        <h3>整体选对率（控制变量对比）</h3>
-        <div class="kpi-row">
-          <div class="kpi"><div class="v">${accB}%</div><div class="l">清洗前</div></div>
-          <div class="kpi"><div class="v" style="color:var(--green)">${accA}%</div><div class="l">清洗后</div></div>
-          <div class="kpi"><div class="v">${deltaTxt}</div><div class="l">变化</div></div>
-          <div class="kpi"><div class="v">${r.evaluated_samples}</div><div class="l">评估样本</div></div>
-        </div>
-        ${r.skipped_samples ? `<div class="note">已跳过 ${r.skipped_samples} 条样本（正确技能不在当前技能集中）。</div>` : ""}
-      </div>
-      <div class="card"><h3>逐技能命中对比</h3>${perRows}</div>
-      <div class="card"><h3>回归技能</h3>${regRows}</div>`;
-    document.querySelectorAll("#scheduleResult [data-recall]").forEach((b) =>
-      b.onclick = () => recallBudget(b.dataset.recall)
-    );
-  } catch (e) {
-    $("#scheduleResult").innerHTML = `<div class="card" style="color:var(--red)">模拟失败：${esc(e.message)}</div>`;
-  }
-}
-
-async function recallBudget(skillId) {
-  try {
-    const r = await api("/api/sim/budget", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ skill_id: skillId }),
-    });
-    toast(`已回调 ${skillId} 压缩预算 → target=${r.target}`);
-  } catch (e) {
-    toast("回调失败：" + e.message);
-  }
-}
-
-async function exportGold() {
-  const g = await api("/api/sim/gold");
-  const blob = new Blob([JSON.stringify(g.samples, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "gold_samples.json"; a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-async function importGold(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const samples = JSON.parse(await file.text());
-    const r = await api("/api/sim/gold", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ samples }),
-    });
-    toast(`已导入 ${r.count} 条 gold 样本`);
-    renderSchedulePanel();
-  } catch (err) {
-    toast("导入失败：" + err.message);
-  }
-}
-
-async function renderCostPanel() {
-  const pr = await api("/api/sim/pricing");
-  const skills = await api("/api/skills");
-  const sumBefore = skills.skills.reduce((a, s) => a + s.desc_tokens, 0);
-  const modelOpts = pr.models.map((m) => `<option value="${esc(m.model)}">${esc(m.model)}</option>`).join("");
-  $("#sim-cost").innerHTML = `
-    <div class="card">
-      <h3>成本/延迟仿真 · 把 token 节省折算为金额与延迟</h3>
-      <div class="kv"><span class="k">模型</span><span><select id="costModel">${modelOpts}</select>
-        <button class="btn secondary" id="editPriceBtn" style="margin-left:8px">编辑定价表</button></span></div>
-      <div class="slider-row">
-        <label>技能数 <b id="scSkills">20</b></label>
-        <input type="range" id="costSkills" min="1" max="200" value="20">
-      </div>
-      <div class="slider-row">
-        <label>对话轮次 <b id="scTurns">1000</b></label>
-        <input type="range" id="costTurns" min="1" max="10000" value="1000">
-      </div>
-      <div class="slider-row">
-        <label>常驻 token/轮（前）<b id="scBefore">${sumBefore||1200}</b></label>
-        <input type="range" id="costBefore" min="0" max="${Math.max(5000, sumBefore*2)}" value="${sumBefore||1200}">
-      </div>
-      <div class="slider-row">
-        <label>常驻 token/轮（后）<b id="scAfter">${Math.round((sumBefore||1200)*0.4)}</b></label>
-        <input type="range" id="costAfter" min="0" max="${Math.max(5000, sumBefore*2)}" value="${Math.round((sumBefore||1200)*0.4)}">
-      </div>
-      <div class="row"><button class="btn" id="runCostBtn">▶ 运行仿真</button></div>
-      <div class="note">${esc(pr.disclaimer || "")}（快照 ${esc(pr.as_of || "")})</div>
-    </div>
-    <div id="costResult"></div>`;
-  const bind = (id, label) => {
-    const s = $("#" + id);
-    s.oninput = () => ($("#" + label).textContent = s.value);
-  };
-  bind("costSkills", "scSkills"); bind("costTurns", "scTurns");
-  bind("costBefore", "scBefore"); bind("costAfter", "scAfter");
-  $("#runCostBtn").onclick = runCostSim;
-  $("#editPriceBtn").onclick = editPricing;
-}
-
-async function runCostSim() {
-  const model = $("#costModel").value;
-  const body = {
-    model,
-    skills_count: +$("#costSkills").value,
-    turns: +$("#costTurns").value,
-    resident_tokens_before: +$("#costBefore").value,
-    resident_tokens_after: +$("#costAfter").value,
-  };
-  $("#costResult").innerHTML = `<div class="card"><div class="note">仿真运行中…</div></div>`;
-  try {
-    const r = await api("/api/sim/cost", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const maxC = Math.max(r.cost_before, r.cost_after, 0.0001);
-    const wB = Math.round(r.cost_before / maxC * 100);
-    const wA = Math.round(r.cost_after / maxC * 100);
-    $("#costResult").innerHTML = `
-      <div class="card">
-        <h3>结果（${esc(model)}）</h3>
-        <div class="kv"><span class="k">每轮常驻 token</span><span>前 <b>${r.per_round_resident_before}</b> | 后 <b>${r.per_round_resident_after}</b></span></div>
-        <div class="kv"><span class="k">累计 token</span><span>前 <b>${r.cumulative_before.toLocaleString()}</b> | 后 <b>${r.cumulative_after.toLocaleString()}</b></span></div>
-        <div class="kv"><span class="k">折算金额</span><span>前 <b>$${r.cost_before.toFixed(4)}</b> | 后 <b>$${r.cost_after.toFixed(4)}</b> → 省 <b style="color:var(--green)">$${r.saved_amount.toFixed(4)}</b></span></div>
-        <div class="kv"><span class="k">每轮延迟</span><span>前 <b>${r.latency_per_round_before}ms</b> | 后 <b>${r.latency_per_round_after}ms</b></span></div>
-        <div class="kv"><span class="k">累计延迟</span><span>前 <b>${r.latency_cumulative_before}ms</b> | 后 <b>${r.latency_cumulative_after}ms</b> → 省 <b style="color:var(--green)">${r.saved_latency}ms</b></span></div>
-        <div class="compare">
-          <div class="cmp-box cmp-before"><h4>before $${r.cost_before.toFixed(2)}</h4><span class="bar-fill" style="display:block;width:${wB}%;height:18px;background:var(--red)"></span></div>
-          <div class="cmp-box cmp-after"><h4>after $${r.cost_after.toFixed(2)}</h4><span class="bar-fill" style="display:block;width:${wA}%;height:18px;background:var(--green)"></span></div>
-        </div>
-      </div>`;
-  } catch (e) {
-    $("#costResult").innerHTML = `<div class="card" style="color:var(--red)">仿真失败：${esc(e.message)}</div>`;
-  }
-}
-
-async function editPricing() {
-  const pr = await api("/api/sim/pricing");
-  const txt = prompt("编辑模型定价表（JSON 数组，每条含 model/input_price_per_1k/output_price_per_1k/latency_overhead_ms/latency_per_token_ms/context_window）：",
-    JSON.stringify(pr.models, null, 2));
-  if (!txt) return;
-  try {
-    const models = JSON.parse(txt);
-    const r = await api("/api/sim/pricing", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ models }),
-    });
-    toast(`定价表已更新（${r.models.length} 个模型）`);
-    renderCostPanel();
-  } catch (e) {
-    toast("更新失败：" + e.message);
-  }
 }
 
 /* ---------- 冲突检测 ---------- */
@@ -875,32 +656,24 @@ function showView(name) {
   const map = {
     simplify: ["#nav-simplify", "#view-simplify"],
     assets: ["#nav-assets", "#view-assets"],
-    sim: ["#nav-sim", "#view-sim"],
     conflicts: ["#nav-conflicts", "#view-conflicts"],
     dashboard: ["#nav-dashboard", "#view-dashboard"],
-    evolve: ["#nav-evolve", "#view-evolve"],
+    personal: ["#nav-personal", "#view-personal"],
   };
   for (const [n, [btn, view]] of Object.entries(map)) {
     $(btn).classList.toggle("active", n === name);
     $(view).classList.toggle("hidden", n !== name);
   }
-  // B-3：离开进化视图时清理倒计时 interval，避免泄漏
-  if (name !== "evolve" && _autoTimer) {
-    clearInterval(_autoTimer);
-    _autoTimer = null;
-  }
-  if (name === "sim") renderSim();
   if (name === "conflicts") renderConflicts();
   if (name === "dashboard") renderDashboard();
-  if (name === "evolve") renderEvolve();
+  if (name === "personal") renderPersonal();
 }
 function bindNav() {
   $("#nav-simplify").onclick = () => showView("simplify");
   $("#nav-assets").onclick = () => showView("assets");
-  $("#nav-sim").onclick = () => showView("sim");
   $("#nav-conflicts").onclick = () => showView("conflicts");
   $("#nav-dashboard").onclick = () => showView("dashboard");
-  $("#nav-evolve").onclick = () => showView("evolve");
+  $("#nav-personal").onclick = () => showView("personal");
 }
 function bindTabs() {
   document.querySelectorAll(".tab[data-tab]").forEach((t) => t.onclick = () => switchTab(t.dataset.tab));
@@ -912,513 +685,79 @@ function switchTab(name) {
   if (name === "track") renderTrack();
 }
 
-/* ---------- 进化看板（v2.1 + v2.2 + v2.3 · 自主进化引擎 + 进化账本 + 趋势 + 自动循环） ---------- */
-function renderEvolve() {
-  bindEvolveNav();
-  loadLedger();
-  loadTrends();
-  getAutoStatus();
-  loadBackendSource();
-  loadPressure();   // A-4：拉取并渲染「上次外部变化」
+/* ---------- 个性化口癖（v2.14 · 用户自定义常写、白费 token 的口癖，简化时默认消除） ---------- */
+async function renderPersonal() {
+  // 进入视图即绑定添加 / 回车，并刷新清单
+  const addBtn = $("#addPhraseBtn");
+  if (addBtn) addBtn.onclick = addPhrase;
+  const input = $("#phraseInput");
+  if (input) input.onkeydown = (e) => { if (e.key === "Enter") addPhrase(); };
+  await loadPersonalPhrases();
 }
 
-function bindEvolveNav() {
-  $("#evolveBootstrapBtn").onclick = bootstrapGold;
-  $("#evolveRunBtn").onclick = runEvolve;
-  $("#evolveReportBtn").onclick = exportReport;
-  $("#evolveCalibrateBtn").onclick = loadCalibration;
-  $("#evolveAutoBtn").onclick = toggleAutoEvolve;
-  $("#backendProbeBtn").onclick = probeBackend;
-  $("#ledgerLimit").onchange = loadLedger;
-  $("#ledgerType").onchange = loadLedger;
-  $("#ledgerWindow").onchange = loadLedger;
-}
-
-/* D-2 后端来源显示：读 GET /api/config/vectorizer 的 backend_source / ollama_available */
-async function loadBackendSource() {
+async function loadPersonalPhrases() {
+  const list = $("#phraseList");
+  if (!list) return;
+  list.innerHTML = `<div class="note">加载中…</div>`;
   try {
-    const cfg = await api("/api/config/vectorizer");
-    const el = $("#backendSource");
-    if (!el) return;
-    const src = cfg.backend_source;
-    let label;
-    if (src === "local-st") {
-      label = `当前后端：local-st（ollama ${cfg.ollama_available ? "可用" : "未探测到"}）`;
-    } else if (src === "openai") {
-      label = "当前后端：openai";
-    } else {
-      label = "当前后端：local-tfidf（已回退）";
-    }
-    el.textContent = label;
-    el.className = "backend-source " + (src === "local-tfidf" ? "fallback" : "active");
-  } catch (e) { /* 静默：端点可能暂不可用 */ }
-}
-
-/* D-2 显式刷新：POST /api/config/vectorizer/probe 重新探测并刷新来源显示 */
-async function probeBackend() {
-  try {
-    await api("/api/config/vectorizer/probe", { method: "POST" });
-    await loadBackendSource();
-    toast("已重新探测后端可用性");
+    const r = await api("/api/personal/phrases");
+    renderPhraseList(r.phrases || []);
   } catch (e) {
-    toast("探测失败：" + e.message);
+    list.innerHTML = `<div class="note" style="color:var(--red)">加载失败：${esc(e.message)}</div>`;
   }
 }
 
-async function loadLedger() {
-  const limit = +($("#ledgerLimit")?.value || 50);
-  const type = $("#ledgerType")?.value || "";
-  const window = $("#ledgerWindow")?.value || "";
-  const bounds = _windowBounds(window);
-  let url = `/api/evolve/ledger?limit=${limit}`;
-  if (type) url += `&action_type=${encodeURIComponent(type)}`;
-  if (bounds.since) url += `&since=${encodeURIComponent(bounds.since)}`;
-  if (bounds.until) url += `&until=${encodeURIComponent(bounds.until)}`;
-  $("#ledger-timeline").innerHTML = `<div class="note">加载账本…</div>`;
+function renderPhraseList(phrases) {
+  const list = $("#phraseList");
+  const empty = $("#phraseEmpty");
+  if (!list) return;
+  if (!phrases.length) {
+    list.innerHTML = "";
+    if (empty) empty.style.display = "block";
+    return;
+  }
+  if (empty) empty.style.display = "none";
+  list.innerHTML = phrases.map((p) =>
+    `<div class="phrase-item">
+      <span class="phrase-text">${esc(p)}</span>
+      <button class="btn secondary phrase-del" data-phrase="${esc(p)}">删除</button>
+    </div>`
+  ).join("");
+  list.querySelectorAll(".phrase-del").forEach((b) => (b.onclick = () => removePhrase(b.dataset.phrase)));
+}
+
+async function addPhrase() {
+  const input = $("#phraseInput");
+  if (!input) return;
+  const phrase = (input.value || "").trim();
+  if (!phrase) {
+    toast("请先输入一个口癖");
+    return;
+  }
   try {
-    const r = await api(url);
-    renderTrendCards();
-    if (!r.entries.length) {
-      $("#ledger-timeline").innerHTML = `<div class="card"><div class="note">暂无进化记录。运行「🌱 播种」或「▶ 运行自主进化」开始积累。</div></div>`;
-      return;
-    }
-    const badgeClass = {
-      gold_seed: "valid", budget_auto_recall: "warning",
-      budget_manual_override: "warning", conflict_rule_deposit: "invalid",
-      calibration: "info", skill_signature_change: "info",
-    };
-    const rows = r.entries.map((e) => {
-      const cls = badgeClass[e.action_type] || "info";
-      return `<div class="ledger-row">
-        <span class="ledger-badge badge ${cls}">${esc(e.action_type)}</span>
-        <span class="ledger-obj mono">${esc(e.object || "—")}</span>
-        <span class="ledger-vals mono">${esc(e.before_val || "∅")} → ${esc(e.after_val || "∅")}</span>
-        <span class="ledger-trigger tag">${esc(e.trigger)}</span>
-        <span class="ledger-ts">${esc((e.ts || "").slice(0, 19).replace("T", " "))}</span>
-        <span class="ledger-note">${esc(e.note || "")}</span>
-      </div>`;
-    }).join("");
-    $("#ledger-timeline").innerHTML = `<div class="card"><h3>账本时间线（${r.count}）</h3>${rows}</div>`;
-  } catch (e) {
-    $("#ledger-timeline").innerHTML = `<div class="card" style="color:var(--red)">加载失败：${esc(e.message)}</div>`;
-  }
-}
-
-/* 时间窗 -> ISO 边界（UTC，字典序可比）。today=当日 00:00Z 起；week=近 7 天起。 */
-function _windowBounds(window) {
-  if (!window) return { since: "", until: "" };
-  const now = new Date();
-  if (window === "today") {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
-    return { since: start.toISOString(), until: "" };
-  }
-  if (window === "week") {
-    const start = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-    return { since: start.toISOString(), until: "" };
-  }
-  return { since: "", until: "" };
-}
-
-async function bootstrapGold() {
-  const force = window.confirm("强制重新播种缺失技能？（取消 = 仅在 gold 不足阈值时播种）");
-  try {
-    const r = await api("/api/evolve/bootstrap-gold", {
+    const r = await api("/api/personal/phrases", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force }),
+      body: JSON.stringify({ phrase }),
     });
-    toast(`已播种 ${r.seeded} 个技能 gold 样本（共 ${r.total} 条）`);
-    loadLedger();
+    input.value = "";
+    renderPhraseList(r.phrases);
+    toast(r.added ? `已添加「${phrase}」` : `「${phrase}」已在清单中`);
   } catch (e) {
-    toast("播种失败：" + e.message);
+    toast("添加失败：" + e.message);
   }
 }
 
-async function runEvolve() {
-  $("#ledger-timeline").innerHTML = `<div class="note">自主进化运行中…</div>`;
+async function removePhrase(phrase) {
   try {
-    const r = await api("/api/evolve/run", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    const r = await api("/api/personal/phrases", {
+      method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
     });
-    toast(`进化完成：播种 ${r.gold.seeded} · 自动回调 ${r.auto_recalled.length} · 沉淀规则 ${r.deposited_rules.length}`);
-    renderTrendCards();
-    loadLedger();
+    renderPhraseList(r.phrases);
+    toast(`已删除「${phrase}」`);
   } catch (e) {
-    toast("进化失败：" + e.message);
+    toast("删除失败：" + e.message);
   }
-}
-
-async function loadCalibration() {
-  const limit = +($("#calibLimit")?.value || 30);
-  $("#calibration-panel").innerHTML = `<div class="note">校准中…</div>`;
-  try {
-    const r = await api(`/api/evolve/calibration?limit=${limit}`);
-    if (!r.available) {
-      // 未启用 embedding：提示而非报错
-      $("#calibration-panel").innerHTML = `<div class="note">未启用：当前未配置 embedding 后端（${esc(r.reason || "")}）。仅使用 local-tfidf 打分，无需校准。</div>`;
-      return;
-    }
-    const pairs = (r.top_divergent_pairs || []).map((p) =>
-      `<div class="kv"><span class="k">${esc(p.skill_a)} ↔ ${esc(p.skill_b)}</span><span class="mono">local ${p.sim_local} / emb ${p.sim_emb} · 差 ${p.diff}</span></div>`
-    ).join("");
-    $("#calibration-panel").innerHTML = `
-      <div class="kv"><span class="k">可用性</span><span><b style="color:var(--green)">已启用</b> · 采样 ${r.sample_pairs} 对</span></div>
-      <div class="kv"><span class="k">Pearson 相关性</span><span class="mono">${r.correlation ?? "N/A"}</span></div>
-      <div class="kv"><span class="k">排序分歧</span><span class="mono">${r.rank_divergence ?? "N/A"}</span></div>
-      <div class="card" style="margin-top:8px"><h3>分歧最大的技能对</h3>${pairs || "<div class='note'>无</div>"}</div>`;
-  } catch (e) {
-    $("#calibration-panel").innerHTML = `<div class="note" style="color:var(--red)">校准失败：${esc(e.message)}</div>`;
-  }
-}
-
-async function exportReport() {
-  try {
-    const resp = await fetch("/api/evolve/report?format=markdown");
-    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
-    const text = await resp.text();
-    const blob = new Blob([text], { type: "text/markdown" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "evolution_report.md";
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast("已导出 evolution_report.md");
-  } catch (e) {
-    toast("导出失败：" + e.message);
-  }
-}
-
-/* ---------- 进化趋势图（C-1 / C-4 · 手写 SVG 折线，零构建零依赖） ---------- */
-async function loadTrends() {
-  try {
-    const r = await api("/api/evolve/trends?limit=100");
-    renderTrendChart(r.points || []);
-  } catch (e) { /* 静默：不影响账本渲染 */ }
-}
-
-/* 手写 SVG 折线渲染：gold 覆盖度（0~100%）+ F1 前(虚)/后(实)。
-   空数据占位；每个数据点带 <title> hover tooltip（C-4）。沿用 .trend-svg 视觉。
-   B-1：单点/两点画水平参考线 +「样本不足」提示；B-2：相邻点异常高亮 + 「存在 N 处异常」。 */
-// 异常阈值（B-2，与后端 config.ANOMALY_F1_DROP / ANOMALY_COV_DROP 对齐，前端可微调）
-const ANOMALY_F1_DROP = 0.1;   // f1_acc_after 降幅
-const ANOMALY_COV_DROP = 5;    // gold_coverage 下降百分点
-
-function renderTrendChart(points) {
-  const emptyGold = `<div class="trend-empty">暂无趋势数据，运行「▶ 运行自主进化」后此处显示 Gold 覆盖度趋势。</div>`;
-  const emptyF1 = `<div class="trend-empty">暂无趋势数据。</div>`;
-  if (!points || !points.length) {
-    $("#trendGold").innerHTML = emptyGold;
-    $("#trendF1").innerHTML = emptyF1;
-    return;
-  }
-  _drawTrend("#trendGold", points, {
-    label: "Gold 覆盖度 (%)",
-    metricLabel: "Gold 覆盖度(%)",
-    minY: 0, maxY: 100, value: (p) => p.gold_coverage,
-    cls: "trend-line-gold", yFmt: (v) => v.toFixed(1) + "%",
-  });
-  _drawTrend("#trendF1", points, {
-    label: "F1 选对率（清洗前/后）",
-    metricLabel: "F1 选对率(后)",
-    minY: 0, maxY: 1, dual: true,
-    before: (p) => p.f1_acc_before, after: (p) => p.f1_acc_after,
-    clsBefore: "trend-line-f1 before", clsAfter: "trend-line-f1 after",
-    yFmt: (v) => (v * 100).toFixed(1) + "%",
-  });
-}
-
-function _drawTrend(sel, points, opt) {
-  const W = 560, H = 170, padL = 42, padR = 14, padT = 14, padB = 28;
-  const innerW = W - padL - padR, innerH = H - padT - padB;
-  const n = points.length;
-  const xAt = (i) => padL + (n <= 1 ? 0 : innerW * i / (n - 1));
-  const yAt = (v) => padT + innerH * (1 - (v - opt.minY) / ((opt.maxY - opt.minY) || 1));
-  const mkPath = (vals) =>
-    vals.map((v, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ");
-
-  // B-1：单点（<2）画水平参考线 +「样本不足」提示（==0 已在 renderTrendChart 处理为空占位）
-  if (n < 2) {
-    const v = (n === 1)
-      ? (opt.dual ? opt.after(points[0]) : opt.value(points[0]))
-      : (opt.minY + opt.maxY) / 2;
-    const y = yAt(v);
-    $(sel).innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="xMidYMid meet">
-      <line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="trend-ref-line"/>
-      <circle cx="${padL}" cy="${y.toFixed(1)}" r="3" class="trend-dot gold"><title>${esc(points[0]?.ts || "")} · ${esc(opt.label)}: ${opt.yFmt(v)}</title></circle>
-      <text x="${padL}" y="${(padT + 12).toFixed(1)}" class="trend-insufficient">样本不足，建议运行进化</text>
-      <text x="${padL}" y="${H - 6}" class="trend-axis">${esc(opt.label)}</text>
-    </svg>`;
-    return;
-  }
-
-  let grid = "";
-  for (let k = 0; k <= 4; k++) {
-    const yy = padT + innerH * k / 4;
-    const val = opt.maxY - (opt.maxY - opt.minY) * k / 4;
-    grid += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}" class="trend-grid"/>`;
-    grid += `<text x="${padL - 6}" y="${(yy + 3).toFixed(1)}" class="trend-axis" text-anchor="end">${opt.yFmt(val)}</text>`;
-  }
-
-  // B-2：相邻点异常比较（gold 覆盖度下降 / F1 后选对率暴跌）
-  const anomalies = [];
-  for (let i = 1; i < n; i++) {
-    if (opt.dual) {
-      const prev = opt.after(points[i - 1]), cur = opt.after(points[i]);
-      if (prev - cur >= ANOMALY_F1_DROP) {
-        anomalies.push({ i, reason: `F1 后选对率下降 ${((prev - cur) * 100).toFixed(1)}pt` });
-      }
-    } else {
-      const prev = opt.value(points[i - 1]), cur = opt.value(points[i]);
-      if (prev - cur >= ANOMALY_COV_DROP) {
-        anomalies.push({ i, reason: `覆盖度下降 ${(prev - cur).toFixed(1)}pt` });
-      }
-    }
-  }
-  const isAnomAt = (i) => anomalies.find((a) => a.i === i);
-
-  let lines = "", dots = "";
-  if (opt.dual) {
-    const bv = points.map((p) => opt.before(p));
-    const av = points.map((p) => opt.after(p));
-    lines += `<path d="${mkPath(bv)}" class="${opt.clsBefore}" />`;
-    lines += `<path d="${mkPath(av)}" class="${opt.clsAfter}" />`;
-    points.forEach((p, i) => {
-      const ab = isAnomAt(i);
-      const clsB = ab ? "trend-dot before trend-anomaly" : "trend-dot before";
-      const clsA = ab ? "trend-dot after trend-anomaly" : "trend-dot after";
-      let attrA = `cx="${xAt(i).toFixed(1)}" cy="${yAt(av[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${clsA}"`;
-      if (ab) {
-        // B-4：异常点补 data-*（前/本值 + 指标 + 序号 + ts），供点击下钻浮层
-        const prevV = i > 0 ? av[i - 1] : av[i];
-        attrA += ` data-metric="${esc(opt.metricLabel || opt.label)}" data-idx="${i}"` +
-                 ` data-prev="${prevV.toFixed(4)}" data-cur="${av[i].toFixed(4)}" data-ts="${esc(p.ts)}"`;
-      }
-      dots += `<circle ${attrA}><title>${esc(p.ts)} · 后: ${opt.yFmt(av[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
-      dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(bv[i]).toFixed(1)}" r="3" class="${clsB}"><title>${esc(p.ts)} · 前: ${opt.yFmt(bv[i])}</title></circle>`;
-    });
-  } else {
-    const vv = points.map((p) => opt.value(p));
-    lines += `<path d="${mkPath(vv)}" class="${opt.cls}" />`;
-    points.forEach((p, i) => {
-      const ab = isAnomAt(i);
-      const cls = ab ? "trend-dot gold trend-anomaly" : "trend-dot gold";
-      let attr = `cx="${xAt(i).toFixed(1)}" cy="${yAt(vv[i]).toFixed(1)}" r="${ab ? 4.5 : 3}" class="${cls}"`;
-      if (ab) {
-        // B-4：异常点补 data-*（前/本值 + 指标 + 序号 + ts），供点击下钻浮层
-        const prevV = i > 0 ? vv[i - 1] : vv[i];
-        attr += ` data-metric="${esc(opt.metricLabel || opt.label)}" data-idx="${i}"` +
-                ` data-prev="${prevV.toFixed(4)}" data-cur="${vv[i].toFixed(4)}" data-ts="${esc(p.ts)}"`;
-      }
-      dots += `<circle ${attr}><title>${esc(p.ts)} · ${esc(opt.label)}: ${opt.yFmt(vv[i])}${ab ? " · ⚠ " + esc(ab.reason) : ""}</title></circle>`;
-    });
-  }
-
-  // B-2 图例：存在 N 处异常
-  const legend = anomalies.length
-    ? `<text x="${W - padR}" y="${(padT + 12).toFixed(1)}" text-anchor="end" class="trend-anomaly">存在 ${anomalies.length} 处异常</text>`
-    : "";
-
-  $(sel).innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="xMidYMid meet">
-    ${grid}${lines}${dots}${legend}
-    <text x="${padL}" y="${H - 6}" class="trend-axis">${esc(opt.label)}</text>
-  </svg>`;
-}
-
-/* ---------- 自动循环状态（B-2 / B-3 · 实时倒计时） ---------- */
-let _autoTimer = null;       // setInterval 句柄（切换视图时清理）
-let _autoNextSec = null;     // 下次运行剩余秒数
-
-function _fmtCountdown(sec) {
-  if (sec == null) return "";
-  const m = Math.floor(sec / 60), s = sec % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function _tickAutoStatus() {
-  const badge = $("#autoStatus");
-  if (!badge) return;
-  if (_autoNextSec == null || !badge.classList.contains("on")) return;
-  _autoNextSec = Math.max(0, _autoNextSec - 1);
-  const last = badge.dataset.last || "";
-  badge.textContent = `● 自动进化：运行中${last} · 下次运行 ${_fmtCountdown(_autoNextSec)}`;
-}
-
-async function getAutoStatus() {
-  // B-3：清理旧 timer（切换视图/重复调用），避免泄漏
-  if (_autoTimer) { clearInterval(_autoTimer); _autoTimer = null; }
-  try {
-    const s = await api("/api/evolve/auto/status");
-    const badge = $("#autoStatus");
-    if (s.running) {
-      badge.className = "auto-badge on";
-      _autoNextSec = (s.next_run_in_sec != null) ? s.next_run_in_sec : null;
-      const next = _autoNextSec != null ? ` · 下次运行 ${_fmtCountdown(_autoNextSec)}` : "";
-      const last = s.last_run ? ` · 上次 ${s.last_run.slice(0, 19).replace("T", " ")}` : "";
-      badge.dataset.last = last;
-      badge.textContent = `● 自动进化：运行中${last}${next}`;
-      $("#evolveAutoBtn").textContent = "⚙ 自动进化：关";
-      _autoTimer = setInterval(_tickAutoStatus, 1000);
-    } else {
-      badge.className = "auto-badge off";
-      badge.textContent = "○ 自动进化：暂停";
-      _autoNextSec = null;
-      $("#evolveAutoBtn").textContent = "⚙ 自动进化：开";
-    }
-  } catch (e) { /* 静默：端点可能暂不可用 */ }
-}
-
-async function toggleAutoEvolve() {
-  try {
-    const s = await api("/api/evolve/auto/status");
-    if (s.running) {
-      await api("/api/evolve/auto/stop", { method: "POST" });
-      toast("已关闭自动进化循环");
-    } else {
-      await api("/api/evolve/auto/start", { method: "POST" });
-      toast("已开启自动进化循环");
-    }
-    getAutoStatus();
-  } catch (e) {
-    toast("切换失败：" + e.message);
-  }
-}
-
-/* P1-4 看板趋势卡：累计动作 / 自动回调技能数 / 沉淀规则数 / 最近进化时间 */
-async function renderTrendCards() {
-  try {
-    const r = await api("/api/evolve/report?format=json");
-    const s = r.summary || { total: 0, by_action_type: {} };
-    const autoRecall = s.by_action_type["budget_auto_recall"] || 0;
-    const deposited = s.by_action_type["conflict_rule_deposit"] || 0;
-    const lastTs = (r.entries && r.entries[0] && r.entries[0].ts)
-      ? r.entries[0].ts.slice(0, 19).replace("T", " ") : "—";
-    const kpis = [
-      { l: "累计自进化动作", v: s.total, u: "次", num: true },
-      { l: "自动回调技能", v: autoRecall, u: "次", num: true },
-      { l: "沉淀规则", v: deposited, u: "条", num: true },
-      { l: "最近进化时间", v: lastTs, u: "", num: false },
-    ];
-    $("#evolveKpiRow").innerHTML = kpis.map((k) =>
-      `<div class="kpi"><div class="v">${k.num ? `<span data-count="${k.v}">0</span>` : esc(k.v)}</div>` +
-      `<div class="l">${esc(k.l)}${k.u ? " (" + k.u + ")" : ""}</div></div>`
-    ).join("");
-    if (s.total) countUpAll($("#evolveKpiRow"));
-  } catch (e) { /* 静默：不影响账本渲染 */ }
-}
-
-/* ---------- 使用说明（P0 · 首次自动弹 / 顶栏唤起 / localStorage 持久化） ---------- */
-function initOnboarding() {
-  const KEY = "skillforge_onboarding_v2_4";
-  const modal = $("#onboardingModal");
-  if (!modal) return;
-
-  const show = () => modal.classList.remove("hidden");
-  const hide = () => modal.classList.add("hidden");
-  const close = () => {
-    // 置位 localStorage → 刷新不再自动弹；多视图再次唤起仍可关闭
-    try { localStorage.setItem(KEY, "seen"); } catch (e) { /* 隐私模式忽略 */ }
-    hide();
-  };
-
-  // 关闭入口：遮罩点击 / X / 「开始使用」按钮
-  modal.querySelectorAll("[data-close]").forEach((b) => { b.onclick = close; });
-  const startBtn = $("#onboardingStartBtn");
-  if (startBtn) startBtn.onclick = close;
-
-  // 顶栏「❓ 使用说明」随时唤起同一模态
-  const helpBtn = $("#nav-help");
-  if (helpBtn) helpBtn.onclick = show;
-
-  // Esc 关闭（仅模态可见时）
-  if (!initOnboarding._escBound) {
-    initOnboarding._escBound = true;
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
-    });
-  }
-
-  // 首次（localStorage 未置位）自动弹
-  let seen = false;
-  try { seen = localStorage.getItem(KEY) === "seen"; } catch (e) { seen = false; }
-  if (!seen) show();
-}
-
-/* ---------- A-4 压力源可观测：上次外部变化 ---------- */
-async function loadPressure() {
-  const el = $("#lastExternalChange");
-  if (!el) return;
-  try {
-    const r = await api("/api/evolve/pressure");
-    const lc = r.last_change;
-    if (lc) {
-      const ts = (lc.ts || "").slice(0, 19).replace("T", " ");
-      const add = (lc.added || []).length;
-      const rem = (lc.removed || []).length;
-      const chg = (lc.changed || []).length;
-      el.textContent = `★ 上次外部变化：(+${add}新增 / -${rem}删除 / ~${chg}修改) @ ${ts}`;
-    } else {
-      el.textContent = "★ 上次外部变化：暂无外部变化";
-    }
-  } catch (e) {
-    el.textContent = "★ 上次外部变化：加载失败";
-  }
-}
-
-/* ---------- B-4 异常详情下钻：点击趋势图异常点浮层 + 定位账本 ---------- */
-function bindAnomalyClick() {
-  if (bindAnomalyClick._bound) return;  // 仅绑定一次（事件委托）
-  bindAnomalyClick._bound = true;
-  document.addEventListener("click", (e) => {
-    const dot = e.target.closest && e.target.closest(".trend-anomaly");
-    if (!dot || !dot.dataset.ts) return;
-
-    const metric = dot.dataset.metric || "指标";
-    const prev = parseFloat(dot.dataset.prev);
-    const cur = parseFloat(dot.dataset.cur);
-    const ts = dot.dataset.ts || "";
-    const diff = cur - prev;
-    // 变化幅度：绝对差 + 百分比（前值为 0 且变化非 0 记 ∞%）
-    let pctTxt;
-    if (prev === 0) {
-      pctTxt = diff === 0 ? "0%" : "∞%";
-    } else {
-      pctTxt = ((diff / Math.abs(prev)) * 100).toFixed(1) + "%";
-    }
-    const sign = diff >= 0 ? "+" : "";
-
-    const panel = $("#anomalyDetail");
-    if (!panel) return;
-    panel.innerHTML = `
-      <div class="anomaly-detail-head">
-        <strong>异常详情</strong>
-        <button class="anomaly-close" type="button" data-anom-close aria-label="关闭">×</button>
-      </div>
-      <div class="anomaly-row"><span>指标</span><b>${esc(metric)}</b></div>
-      <div class="anomaly-row"><span>前一点</span><b>${prev.toFixed(4)}</b></div>
-      <div class="anomaly-row"><span>本点</span><b>${cur.toFixed(4)}</b></div>
-      <div class="anomaly-row"><span>变化幅度</span><b class="${diff < 0 ? "down" : ""}">${sign}${diff.toFixed(4)} (${sign}${pctTxt})</b></div>
-      <button class="btn secondary" id="anomalyLocateBtn" type="button">定位账本条目</button>
-    `;
-    panel.classList.remove("hidden");
-
-    panel.querySelector("[data-anom-close]").onclick = () => panel.classList.add("hidden");
-    // 点击浮层外部（遮罩区）关闭
-    panel.onclick = (ev) => { if (ev.target === panel) panel.classList.add("hidden"); };
-
-    $("#anomalyLocateBtn").onclick = () => {
-      // U5：按 data-ts 前 19 字符（YYYY-MM-DD HH:MM:SS）匹配 ledger-row 的 ts 高亮对应行；多行同秒取首个
-      const target = ts.slice(0, 19).replace("T", " ");
-      const rows = document.querySelectorAll("#ledger-timeline .ledger-row");
-      let firstMatch = null;
-      rows.forEach((row) => {
-        const tsEl = row.querySelector(".ledger-ts");
-        const rowTs = tsEl ? (tsEl.textContent || "").trim() : "";
-        const match = rowTs.slice(0, 19) === target;
-        row.classList.toggle("anomaly-highlight", match);
-        if (match && !firstMatch) firstMatch = row;
-      });
-      if (firstMatch) firstMatch.scrollIntoView({ behavior: "smooth", block: "center" });
-    };
-  });
 }
 
 // 先同步绑定 UI 事件（导航、资产详情 Tab），再异步拉数据；即使 init() 失败，Tab 也能点。
