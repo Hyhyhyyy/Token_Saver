@@ -37,7 +37,7 @@ def parse_skill_file(path: Path) -> dict:
         frontmatter = yaml.safe_load(fm_raw) or {}
         if not isinstance(frontmatter, dict):
             frontmatter = {}
-    except yaml.YAMLError as e:
+    except yaml.YAMLError:
         return {
             "path": str(path),
             "dir_name": path.parent.name,
@@ -45,7 +45,7 @@ def parse_skill_file(path: Path) -> dict:
             "frontmatter_raw": fm_raw,
             "body": body,
             "body_raw": text,
-            "parse_error": f"YAML 解析失败：{e}",
+            "parse_error": "YAML frontmatter 解析失败",
         }
     return {
         "path": str(path),
