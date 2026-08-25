@@ -14,4 +14,4 @@ pip install --quiet -r requirements.txt
 echo "==> 启动服务 (http://localhost:8000)"
 export SKILLS_DIRS="${SKILLS_DIRS:-$HOME/.workbuddy/skills}"
 export DATA_DIR="${DATA_DIR:-$(pwd)/data}"
-exec uvicorn skillforge.server:app --host 0.0.0.0 --port 8000
+exec uvicorn skillforge.server:app --host 127.0.0.1 --port 8000

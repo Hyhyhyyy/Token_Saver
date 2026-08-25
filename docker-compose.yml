@@ -3,7 +3,8 @@ services:
     build: .
     image: skillforge:1.0.0
     ports:
-      - "8000:8000"
+      # Keep the unauthenticated local-first API off the LAN/public network.
+      - "127.0.0.1:8000:8000"
     environment:
       # 挂载你本机的 skills 目录（按实际路径修改）
       - SKILLS_DIRS=/skills

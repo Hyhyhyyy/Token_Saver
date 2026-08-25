@@ -33,6 +33,7 @@ from .scorer import (
     probe_candidates,
 )
 import json
+from urllib.parse import urlsplit
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -90,6 +91,40 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SkillForge · 技能精炼台", version=__version__, lifespan=lifespan)
 
 
+@app.middleware("http")
+async def local_security_boundary(request: Request, call_next):
+    """Reject browser cross-site writes and oversized request bodies.
+
+    SkillForge intentionally has no remote-user authentication and must remain a
+    loopback-only tool. This middleware blocks drive-by browser requests while
+    preserving CLI/TestClient use where the Origin header is absent.
+    """
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > 1_048_576:
+                return Response("request body too large", status_code=413)
+        except ValueError:
+            return Response("invalid content-length", status_code=400)
+
+    origin = request.headers.get("origin")
+    if origin and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        parsed = urlsplit(origin)
+        expected_host = request.headers.get("host", "")
+        if parsed.scheme not in {"http", "https"} or parsed.netloc != expected_host:
+            return Response("cross-origin write rejected", status_code=403)
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'"
+    )
+    return response
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "version": __version__, "tokenizer": BACKEND, "skills_found": len(scan_skills())}
@@ -117,7 +152,7 @@ def list_skills():
         out.append({
             "name": s["name"],
             "dir_name": s["dir_name"],
-            "path": s["path"],
+            "path": f"{s['dir_name']}/SKILL.md",
             "desc_tokens": s["desc_tokens"],
             "total_tokens": s["total_tokens"],
             "status": v["status"],
@@ -140,7 +175,7 @@ def skill_detail(skill_id: str):
     return {
         "name": s["name"],
         "dir_name": s["dir_name"],
-        "path": s["path"],
+        "path": f"{s['dir_name']}/SKILL.md",
         "frontmatter": s["frontmatter"],
         "body": s["body"],
         "body_raw": s["body_raw"],
