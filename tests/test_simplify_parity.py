@@ -1,8 +1,9 @@
 """v2.6 ↔ v2.5 零回归快照：rules=None / 显式 base5 必须与 v2.5 逐字相等。
 
-通过从 skill-forge-bak 载入真实的 v2.5 simplify_prompt 实现，与当前 v2.6 实现
-做 simplified_text 与 changes 的逐字比对，锁定 P0-3（向后兼容 / 零回归）。
+通过仓库内提交的 v2.5 golden snapshot 与当前实现做逐字比对，锁定 P0-3。
+测试不得依赖维护者机器上的外部备份目录。
 """
+import json
 from pathlib import Path
 
 import pytest
@@ -11,28 +12,8 @@ from skillforge.prompt_simplifier import simplify_prompt, PRESETS
 
 pytestmark = pytest.mark.a
 
-_BAK = (
-    Path(__file__).resolve().parents[2]
-    / "skill-forge-bak"
-    / "skillforge"
-    / "prompt_simplifier.py"
-)
-
-
-def _load_v25():
-    src = _BAK.read_text(encoding="utf-8")
-    # 解除相对导入依赖，改用当前 skillforge 的真实 count_tokens，
-    # 使 v2.5 / v2.6 两侧 token 统计口径一致（否则长度 vs tiktoken 不可比）。
-    src = src.replace(
-        "from .tokenizer import count_tokens",
-        "from skillforge.tokenizer import count_tokens",
-    )
-    ns: dict = {}
-    exec(compile(src, str(_BAK), "exec"), ns)  # noqa: S102
-    return ns["simplify_prompt"]
-
-
-v25_simplify = _load_v25()
+_GOLDEN_PATH = Path(__file__).parent / "fixtures" / "prompt_simplifier_v25.json"
+V25_GOLDEN = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
 
 BASE5 = PRESETS["balanced"]  # == PRESETS["aggressive"] == 5 个基础类别
 
@@ -58,12 +39,15 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("text", CASES, ids=[f"case{i}" for i in range(len(CASES))])
-def test_parity_balanced_rules_none_vs_v25(text):
+@pytest.mark.parametrize(
+    ("text", "golden"),
+    list(zip(CASES, V25_GOLDEN, strict=True)),
+    ids=[f"case{i}" for i in range(len(CASES))],
+)
+def test_parity_balanced_rules_none_vs_v25(text, golden):
     v26 = simplify_prompt(text, mode="balanced")
-    v25 = v25_simplify(text, mode="balanced")
-    assert v26["simplified_text"] == v25["simplified_text"]
-    assert v26["changes"] == v25["changes"]
+    assert v26["simplified_text"] == golden["simplified_text"]
+    assert v26["changes"] == golden["changes"]
 
 
 @pytest.mark.parametrize("text", CASES, ids=[f"case{i}" for i in range(len(CASES))])
@@ -74,8 +58,8 @@ def test_parity_aggressive_not_weaker_than_v25(text):
     aggressive 仅保证「不弱于」v2.5：token 更少或相等（v2.6 只多删、不增删）。
     """
     v26 = simplify_prompt(text, mode="aggressive")
-    v25 = v25_simplify(text, mode="aggressive")
-    assert v26["simplified_tokens"] <= v25["simplified_tokens"]
+    balanced = simplify_prompt(text, mode="balanced")
+    assert v26["simplified_tokens"] <= balanced["simplified_tokens"]
 
 
 @pytest.mark.parametrize("text", CASES, ids=[f"case{i}" for i in range(len(CASES))])
@@ -104,5 +88,4 @@ def test_parity_explicit_base5_politeness_expansion():
     assert "帮我" in none_bal["simplified_text"]
     assert "帮我" not in exp_bal["simplified_text"]
     # rules=None 的简化结果逐字等于 v2.5（契约硬指标，独立测试锁定）
-    v25 = v25_simplify(text, mode="balanced")
-    assert none_bal["simplified_text"] == v25["simplified_text"]
+    assert none_bal["simplified_text"] == "帮我写一个函数。使用 Python。可以吗？"

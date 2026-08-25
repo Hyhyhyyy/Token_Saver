@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -278,12 +279,16 @@ def check_b4_auto_loop_status():
     cfg = {"backend": "local-tfidf"}  # 自动循环与后端无关
     sf = _fresh_env(data_dir, skills_dir, cfg)
 
-    # 直接调用 auto_loop
-    s0 = sf.auto_loop.status()
-    sf.auto_loop.start()
-    s1 = sf.auto_loop.status()
-    sf.auto_loop.stop()
-    s2 = sf.auto_loop.status()
+    # 直接调用 auto_loop；start() 的公开契约要求存在运行中的事件循环。
+    async def _direct_flow():
+        s0 = sf.auto_loop.status()
+        sf.auto_loop.start()
+        s1 = sf.auto_loop.status()
+        sf.auto_loop.stop()
+        s2 = sf.auto_loop.status()
+        return s0, s1, s2
+
+    s0, s1, s2 = asyncio.run(_direct_flow())
     ok_direct = (
         s0["running"] is False
         and s1["running"] is True
@@ -295,7 +300,6 @@ def check_b4_auto_loop_status():
     # 端点视角：用单事件循环的 httpx.AsyncClient（贴近生产 uvicorn 行为）。
     # 注意：Starlette 的 TestClient 每次请求新建事件循环，后台 asyncio 任务会在
     # 两次请求间被销毁，导致 status 误报 false；故此处用持久单循环验证真实行为。
-    import asyncio
     import httpx
     from httpx import ASGITransport
 

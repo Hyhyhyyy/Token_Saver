@@ -1,25 +1,55 @@
-name: Regression
+name: Quality gates
 
 on:
   push:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  regression:
+  tests:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        direction: [a, b, c, d]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install deps
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pytest httpx
-      - name: Run regression (direction ${{ matrix.direction }})
-        run: python -m pytest tests/ -q -m ${{ matrix.direction }}
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest httpx
+      - name: Run complete regression suite
+        run: python -m pytest tests -q
+      - name: Independent contract verification
+        run: python verify_independent.py
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t token-saver-ci .
+
+  frontend-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:css
+      - name: Reject generated CSS drift
+        run: git diff --exit-code -- frontend/tailwind.generated.css

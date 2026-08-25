@@ -3,6 +3,9 @@
 __pycache__/
 *.pyc
 
+# Frontend build toolchain (generated CSS is committed for offline use)
+node_modules/
+
 # 运行期生成数据（默认配置会在首次运行时自动重建）
 data/
 

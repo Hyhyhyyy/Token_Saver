@@ -1,0 +1,16 @@
+[
+  {"simplified_text":"帮我写一个函数。\n使用 Python 实现。\n代码有注释。","changes":["移除 3 处礼貌/冗余填充词"]},
+  {"simplified_text":"角色：助手。使用 Python。","changes":["合并 1 条重复指令","移除 1 处礼貌/冗余填充词","精简 1 处角色描述"]},
+  {"simplified_text":"Here is the task. 你是一个专业的助手，负责回答用户的问题。","changes":["无需变更"]},
+  {"simplified_text":"You are a helpful assistant.  just simply write a function.   very carefully use Python.","changes":["移除 3 处礼貌/冗余填充词"]},
+  {"simplified_text":"请帮我实现登录。你是一个专业的后端工程师，参考示例：\n例如 `pip install skillforge`。\n```python\ndef login(u):\nreturn auth(u)  # 你是一个专业的注释\n```\n文档见 https://api.example.com/login","changes":["无需变更"]},
+  {"simplified_text":"- 项目A\n- 项目B","changes":["删除 1 个空列表项"]},
+  {"simplified_text":"步骤一：打开文件。","changes":["合并 2 条重复指令"]},
+  {"simplified_text":"前言\n\n正文","changes":["无需变更"]},
+  {"simplified_text":"需要注意的是，这个任务很简单。请开始吧。","changes":["无需变更"]},
+  {"simplified_text":"可能你会觉得很难，但其实不会。请放心。","changes":["无需变更"]},
+  {"simplified_text":"例如：\n苹果\n香蕉\n橙子\n葡萄\n西瓜\n这是很长的一串示例用来触发过长示例压缩但在 base5 下不应触发。","changes":["无需变更"]},
+  {"simplified_text":"just write a test? .","changes":["移除 4 处礼貌/冗余填充词"]},
+  {"simplified_text":"角色：分析师\n任务：汇总数据。\n\n输出：报告。","changes":["无需变更"]},
+  {"simplified_text":"申请一个账号。","changes":["移除 1 处礼貌/冗余填充词"]}
+]
