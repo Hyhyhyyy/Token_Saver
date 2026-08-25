@@ -114,6 +114,10 @@ skill-forge/
 会话总节省 ≈ Σ(各技能 description 清洗后减少的 token) × 会话轮次。
 例如 20 个技能各压缩 30 token，则每轮省 600 token，千轮会话省约 60 万 token。
 
+## License
+
+[MIT License](LICENSE)
+
 
 ---
 
