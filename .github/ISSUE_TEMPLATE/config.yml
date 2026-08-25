@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/Hyhyhyyy/Token_Saver/discussions
+    about: Discuss usage and designs without sharing private prompts.
+  - name: Security report
+    url: https://github.com/Hyhyhyyy/Token_Saver/security/policy
+    about: Report vulnerabilities privately.
