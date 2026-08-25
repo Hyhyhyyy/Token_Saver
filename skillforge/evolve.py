@@ -467,6 +467,6 @@ def calibrate(limit: int = config.CALIBRATION_SAMPLE_PAIRS) -> dict:
             "top_divergent_pairs": top_div,
             "ran_at": _now(),
         }
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         # embedding 调用失败：整体返回 available:false 而非 500（arch §7.3 / R-embedding）
-        return {"available": False, "reason": f"embedding 调用失败: {e}"}
+        return {"available": False, "reason": "embedding 调用失败"}

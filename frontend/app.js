@@ -9,7 +9,9 @@ const el = (tag, attrs = {}, html = "") => {
   if (html) e.innerHTML = html;
   return e;
 };
-const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[c]));
 
 /* 复古环形分数（SVG，CSS 已做 stroke 过渡） */
 function scoreRing(value, color) {
@@ -755,13 +757,21 @@ function renderPhraseList(phrases) {
     return;
   }
   if (empty) empty.style.display = "none";
-  list.innerHTML = phrases.map((p) =>
-    `<div class="phrase-item">
-      <span class="phrase-text">${esc(p)}</span>
-      <button class="btn secondary phrase-del" data-phrase="${esc(p)}">删除</button>
-    </div>`
-  ).join("");
-  list.querySelectorAll(".phrase-del").forEach((b) => (b.onclick = () => removePhrase(b.dataset.phrase)));
+  list.textContent = "";
+  phrases.forEach((phrase) => {
+    const row = document.createElement("div");
+    row.className = "phrase-item";
+    const text = document.createElement("span");
+    text.className = "phrase-text";
+    text.textContent = String(phrase);
+    const button = document.createElement("button");
+    button.className = "btn secondary phrase-del";
+    button.type = "button";
+    button.textContent = "删除";
+    button.onclick = () => removePhrase(String(phrase));
+    row.append(text, button);
+    list.append(row);
+  });
 }
 
 async function addPhrase() {

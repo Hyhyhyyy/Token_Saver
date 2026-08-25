@@ -133,7 +133,7 @@ _ROLE_PREFIX_CN = sorted(
 
 # 空列表项：行首 -, *, •, + 或 数字./) 或 字母./) 之后无实际内容
 _EMPTY_BULLET_RE = re.compile(
-    r"^\s*([-*•+]\s+|\d+[.)]\s+|[a-z][.)]\s+)\s*$",
+    r"^(?:[-*•+]|\d+[.)]|[a-z][.)])$",
     re.IGNORECASE,
 )
 # 行内代码 / fenced 代码块 / URL 占位（先保护这些片段，避免被误改）
@@ -710,7 +710,7 @@ def _rule_empty_items(work: str, aggressive_like: bool, explicit: bool = False) 
     kept: list[str] = []
     removed = 0
     for line in lines:
-        if _EMPTY_BULLET_RE.match(line):
+        if _EMPTY_BULLET_RE.fullmatch(line.strip()):
             removed += 1
             continue
         kept.append(line)
@@ -944,7 +944,7 @@ def _rule_duplicate_clauses(work: str, aggressive_like: bool, explicit: bool = F
     for s in sentences:
         if not s:
             continue
-        core = re.sub(r"[。！？]+$", "", s)
+        core = s.rstrip("。！？")
         # (a) 整句精确重复（任意长度 ≥2 CJK）→ 整句丢弃，绝不残留游离标点
         if _cjk_len(core) >= 2 and core in seen:
             removed += 1
@@ -956,7 +956,7 @@ def _rule_duplicate_clauses(work: str, aggressive_like: bool, explicit: bool = F
                 suffix = s[len(prev_core):]
                 if suffix.startswith(" "):
                     suffix = suffix[1:]
-                suffix_core = re.sub(r"[。！？]+$", "", suffix)
+                suffix_core = suffix.rstrip("。！？")
                 if _cjk_len(suffix_core) >= 1:
                     new_s = suffix
                     removed += 1
@@ -1075,7 +1075,7 @@ def _rule_condition_clause(work: str, aggressive_like: bool, explicit: bool = Fa
     if cnt:
         # 最小规整：句首/句末孤立逗号、连续逗号（不触碰有语义标点）
         work = re.sub(r"(?<=[。！？\n])[，,]+", "", work)
-        work = re.sub(r"[，,]+$", "", work)
+        work = work.rstrip("，,")
         work = re.sub(r"[，,]{2,}", "，", work)
     return work, cnt
 

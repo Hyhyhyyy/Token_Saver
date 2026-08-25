@@ -160,7 +160,7 @@ def list_skills():
             "error_count": v["error_count"],
             "warning_count": v["warning_count"],
             "info_count": v["info_count"],
-            "parse_error": s.get("parse_error"),
+            "parse_error": "skill metadata could not be parsed" if s.get("parse_error") else None,
         })
     return {"count": len(out), "skills": out}
 
@@ -182,7 +182,7 @@ def skill_detail(skill_id: str):
         "desc_tokens": s["desc_tokens"],
         "total_tokens": s["total_tokens"],
         "validation": v,
-        "parse_error": s.get("parse_error"),
+        "parse_error": "skill metadata could not be parsed" if s.get("parse_error") else None,
     }
 
 
@@ -232,7 +232,7 @@ async def apply(request: Request):
     if not fm.get("name") or not str(fm.get("description", "")).strip():
         raise HTTPException(400, "清洗结果缺少 name 或 description，已拒绝写入以防损坏")
     if parsed.get("parse_error"):
-        raise HTTPException(400, f"清洗结果无法解析：{parsed['parse_error']}")
+        raise HTTPException(400, "清洗结果无法解析")
 
     s = get_skill_by_id(skill_id)
     if not s:
