@@ -5,6 +5,6 @@
     "build:css": "tailwindcss -c tailwind.config.cjs -i frontend/tailwind.input.css -o frontend/tailwind.generated.css --minify"
   },
   "devDependencies": {
-    "tailwindcss": "3.4.17"
+    "tailwindcss": "4.3.3"
   }
 }
